@@ -1,0 +1,35 @@
+# Grok Build 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8.
+# Modified only to detach workspace dependencies and omit non-library targets.
+[package]
+name = "xai-grok-markdown"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+authors = ["xAI"]
+description = "Streaming markdown renderer for terminal UIs"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
+[dependencies]
+anstyle = "1.0"
+anstyle-lossy = "1.1.4"
+anstyle-syntect = "1.0.4"
+html-escape = "0.2"
+linkify = "0.10"
+pulldown-cmark = "0.13"
+ratatui = "0.29"
+supports-color = "3.0"
+syntect = { version = "5.3", default-features = false, features = ["default-onig"] }
+textwrap = "0.16"
+unicode-segmentation = "1.12.0"
+unicode-width = "0.2"
+url = "2"
+xai-grok-markdown-core = { path = "../xai-grok-markdown-core" }
+
+[build-dependencies]
+syntect = { version = "5.3", default-features = false, features = ["default-onig"] }
+two-face = { version = "0.4", default-features = false, features = ["syntect-onig"] }
+
+[dev-dependencies]
+pretty_assertions = "1"

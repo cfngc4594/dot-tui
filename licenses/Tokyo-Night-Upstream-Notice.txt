@@ -1,0 +1,30 @@
+Extracted without change from Grok Build THIRD-PARTY-NOTICES
+Source commit: 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8
+The referenced Apache-2.0 text is provided in Grok-Build-APACHE-2.0.txt.
+
+Tokyo Night
+--------------------------------------------------------------------------------
+Source:  https://github.com/folke/tokyonight.nvim
+License: Apache-2.0
+
+Copyright notice:
+  Copyright holders / authors:
+    - Folke Lemaitre and contributors (tokyonight.nvim)
+    - Original Tokyo Night VS Code palette lineage: enkia / tokyo-night
+      (https://github.com/enkia/tokyo-night-vscode-theme; upstream MIT)
+
+License text: see Part II — Apache-2.0
+
+Additional requirements / notices:
+  UI palette for theme `tokyonight` (Night/Storm hexes) in
+  xai-grok-pager-render/src/theme/tokyonight.rs.
+  Bundled TextMate syntax theme:
+    crates/codegen/xai-grok-pager-render/assets/tokyo-night.tmTheme
+    crates/codegen/xai-grok-markdown/assets/tokyo-night.tmTheme
+  First-party theme `groknight` reuses Tokyo Night accent hexes (same entry).
+  Palette hexes match the Tokyo Night Night/Storm colors shared by the nvim
+  port (Apache-2.0) and the original VS Code theme (MIT). This distribution
+  attributes the palette and bundled .tmTheme under Apache-2.0 via the nvim
+  port as the primary reference used for the TUI constants; the VS Code
+  lineage is noted for completeness.
+

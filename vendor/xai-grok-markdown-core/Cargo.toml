@@ -1,0 +1,12 @@
+# Grok Build 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8.
+# Modified only to detach workspace dependencies/lints.
+[package]
+name = "xai-grok-markdown-core"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Headless markdown analysis sharing Grok Build's exact pulldown-cmark config."
+
+[dependencies]
+pulldown-cmark = "0.13"
+strum = { version = "0.27", features = ["derive"] }

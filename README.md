@@ -44,7 +44,7 @@ Keys:
 - Bracketed paste is handled as text; pasted commands cannot trigger hotkeys.
 
 The first editor is intentionally append/backspace based; full cursor selection,
-rich media and full cursor selection are not implemented. Markdown is rendered
+rich media are not implemented. Markdown is rendered
 with the original Grok renderer, including code syntax highlighting. Maximum draft 16,000 chars.
 
 ## Build
@@ -145,3 +145,8 @@ cargo build --locked --features dev-demo --target-dir target-dev
 Do not distribute the developer executable as the normal product. Production is
 `cargo build --release --locked` with no features. No ordinary invocation falls
 back to fake replies. `--demo` is rejected by the production CLI.
+
+## Verification record
+
+See [docs/VALIDATION.md](docs/VALIDATION.md) for version 0.7 test results and
+explicitly untested live-account behavior.

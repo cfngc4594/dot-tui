@@ -1,0 +1,29 @@
+[package]
+name = "dot-tui"
+version = "0.7.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Experimental native single-conversation terminal client for ChatGPT dot"
+
+[features]
+default = []
+dev-demo = []
+
+[dependencies]
+chrono = "0.4"
+anstyle = "1.0"
+textwrap = "0.16"
+unicode-segmentation = "1.12.0"
+xai-grok-markdown = { path = "vendor/xai-grok-markdown" }
+ratatui = "0.29"
+crossterm = "0.28"
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde_json = "1"
+libc = "0.2"
+unicode-width = "0.2"
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+lto = "thin"
+strip = true
