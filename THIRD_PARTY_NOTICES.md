@@ -63,3 +63,18 @@ The bundled `Swift.sublime-syntax` identifies its origin as
 `quiqueg/Swift-Sublime-Package`, via bat v0.25.0, with upstream Grok modifications
 marked in its header. Copyright (c) 2014 Matthew Alexander. Its original MIT
 license is retained in `licenses/Swift-Sublime-MIT.txt`.
+
+## Composer and interactive scrollbar correction
+
+`src/scrollbar.rs` retains production geometry, overflow rules, grab-zone,
+ScrollMetrics inverse mapping and tui-scrollbar rendering from
+`crates/codegen/xai-grok-pager-render/src/render/scrollbar.rs` at
+`2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8` (SpaceXAI, Apache-2.0).
+Only theme access is adapted to the fixed GrokNight palette. Follow-mode dimming
+uses the 0.4 blend from `pager/src/views/agent.rs`; drag integration follows
+`pager/src/app/mouse.rs` (press, captured drag, release). The upstream rendering
+bridge retains both ratatui versions and tui-scrollbar's own metrics.
+`upstream_ui::user_lines` additionally preserves each wrapped line's inherited
+style so muted composer placeholders stay muted. `src/editor.rs` is an original
+small grapheme-aware text editor/layout; it does not claim to port Grok's full
+textarea, selection, image chips or text input runtime.

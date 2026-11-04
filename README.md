@@ -43,9 +43,12 @@ Keys:
   warns that closing the app cannot retract the request.
 - Bracketed paste is handled as text; pasted commands cannot trigger hotkeys.
 
-The first editor is intentionally append/backspace based; full cursor selection,
-rich media are not implemented. Markdown is rendered
-with the original Grok renderer, including code syntax highlighting. Maximum draft 16,000 chars.
+The composer supports grapheme-aware Left/Right, Up/Down, Home/End, Ctrl+Home/End,
+Backspace and Delete, with a visible caret and cursor-following soft wraps.
+Selection and rich media remain unimplemented. Markdown uses the original Grok
+renderer, including code syntax highlighting. Maximum draft 16,000 chars.
+The right scrollbar appears only when history overflows; click or drag to seek.
+It shares the wheel's scroll offset, and becomes dimmer while following the bottom.
 
 ## Build
 

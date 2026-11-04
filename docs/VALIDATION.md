@@ -28,3 +28,13 @@ Publication additionally updates documentation and third-party license notices.
 
 Not verified: live authentication and message delivery, native Windows operation,
 full Grok visual parity, approval cards, attachments, or hosted CI for this commit.
+
+## Composer and scrollbar correction (2026-11-04)
+
+Mac arm64: default, dev-demo and release test suites each passed 112 tests.
+Formatting, cargo check --locked, and strict Clippy in default and dev-demo
+configurations passed. Offline PTY verified muted placeholder, visible caret,
+Chinese and combining-character editing, long-input viewport, scrollbar click/drag,
+wheel sync, release/resize cancellation and modal/narrow-screen protection.
+No real credentials or messages were used. Actual Terminal window visual
+comparison remains unverified.

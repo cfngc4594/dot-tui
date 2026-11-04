@@ -160,13 +160,58 @@ fn layout(app: &App, area: Rect) -> upstream::AgentLayout {
     let width = upstream::content_width(area.width.saturating_sub(4))
         .saturating_sub(2)
         .max(1);
-    let text_height = rows(&clean(app.draft(), true), width as usize)
-        .len()
-        .min(u16::MAX as usize) as u16;
+    let text_height =
+        super::editor::layout(app.draft(), app.draft_cursor(), width as usize, usize::MAX)
+            .rows
+            .len()
+            .min(u16::MAX as usize) as u16;
     upstream::compute(area, text_height)
 }
+pub(super) struct Timeline {
+    pub content: Rect,
+    pub track: Option<Rect>,
+    pub total: u16,
+}
+impl Timeline {
+    pub fn limit(&self) -> u16 {
+        self.total.saturating_sub(self.content.height)
+    }
+}
+// Measure first at full width, reserve the upstream gap/track only on overflow,
+// then rewrap at the reduced width. All draw, hit and scroll paths use this result.
+pub(super) fn timeline(app: &App, area: Rect) -> Timeline {
+    if !usable(area) {
+        return Timeline {
+            content: Rect::default(),
+            track: None,
+            total: 0,
+        };
+    }
+    let full = layout(app, area).body;
+    let total = transcript(app, full.width as usize)
+        .len()
+        .min(u16::MAX as usize) as u16;
+    let (content, track) = super::scrollbar::maybe_split_for_scrollbar(full, total);
+    let total = if track.is_some() {
+        transcript(app, content.width as usize)
+            .len()
+            .min(u16::MAX as usize) as u16
+    } else {
+        total
+    };
+    Timeline {
+        content,
+        track,
+        total,
+    }
+}
 fn body_area(app: &App, area: Rect) -> Rect {
-    layout(app, area).body
+    timeline(app, area).content
+}
+pub(super) fn input_width(app: &App, area: Rect) -> usize {
+    upstream::content_width(layout(app, area).prompt.width)
+        .saturating_sub(2)
+        .max(1) as usize
 }
 fn review_area(area: Rect) -> Rect {
     Rect::new(
@@ -193,14 +238,7 @@ fn review_rows(app: &App, width: usize) -> Vec<String> {
     )
 }
 fn transcript_scroll_limit(app: &App, area: Rect) -> u16 {
-    if !usable(area) {
-        return 0;
-    }
-    let body = body_area(app, area);
-    transcript(app, body.width as usize)
-        .len()
-        .saturating_sub(body.height as usize)
-        .min(u16::MAX as usize) as u16
+    timeline(app, area).limit()
 }
 /// Height of the currently visible scroll target, using the actual layout.
 pub(super) fn viewport_height(app: &App, area: Rect) -> u16 {
@@ -276,15 +314,26 @@ pub(super) fn draw(f: &mut Frame, app: &App) {
         ])),
         geometry.top,
     );
-    let body = body_area(app, area);
+    let timeline = timeline(app, area);
+    let body = timeline.content;
     let lines = transcript(app, body.width as usize);
     let max_scroll = transcript_scroll_limit(app, area);
     f.render_widget(
         Paragraph::new(lines).scroll((app.scroll.min(max_scroll), 0)),
         body,
     );
+    if app.review.is_none() && !app.quit_review {
+        super::scrollbar::render_scrollbar(
+            f.buffer_mut(),
+            timeline.track,
+            timeline.total,
+            body.height,
+            app.scroll.min(max_scroll),
+            app.follow_latest,
+        );
+    }
     let composer = geometry.prompt;
-    let enabled = app.enable_send && !app.worker_failed && !app.uncertain && app.pending.is_none();
+    let enabled = app.can_edit();
     upstream::prompt_chrome(f.buffer_mut(), composer);
     let text_area = Rect::new(
         composer.x + 3,
@@ -300,15 +349,18 @@ pub(super) fn draw(f: &mut Frame, app: &App) {
     } else {
         "给 dot 发消息"
     };
+    let editor = super::editor::layout(
+        &draft,
+        app.draft_cursor(),
+        text_area.width.saturating_sub(2) as usize,
+        text_area.height as usize,
+    );
     let display = if draft.is_empty() {
         vec![placeholder.to_owned()]
     } else {
-        rows(&draft, text_area.width.saturating_sub(2) as usize)
+        editor.rows
     };
-    let offset = display
-        .len()
-        .saturating_sub(text_area.height as usize)
-        .min(u16::MAX as usize) as u16;
+    let offset = editor.offset.min(u16::MAX as usize) as u16;
     let style = Style::default().fg(if draft.is_empty() || !enabled {
         upstream::MUTED
     } else {
@@ -322,6 +374,12 @@ pub(super) fn draw(f: &mut Frame, app: &App) {
         "❯ ",
     );
     f.render_widget(Paragraph::new(content).scroll((offset, 0)), text_area);
+    if enabled && app.review.is_none() && !app.quit_review {
+        f.set_cursor_position((
+            text_area.x + 2 + editor.cursor.1 as u16,
+            text_area.y + (editor.cursor.0 - editor.offset) as u16,
+        ));
+    }
     // Upstream caption sits on the bottom chrome, not in an extra status row.
     let caption = clean(&app.last_result, false);
     let caption = rows(&caption, composer.width.saturating_sub(8) as usize)
@@ -476,7 +534,7 @@ mod tests {
             .len()
             .saturating_sub(body.height as usize) as u16;
         assert_eq!(scroll_limit(&a, area), expected);
-        assert!(u16::MAX.min(scroll_limit(&a, area)).saturating_sub(3) < expected);
+        assert!(scroll_limit(&a, area).saturating_sub(3) < expected);
         a.append(&"审阅正文\n".repeat(30));
         a.review_send();
         let expected_review = review_rows(&a, 52).len().saturating_sub(9) as u16;
@@ -546,3 +604,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "ui_regression_tests.rs"]
+mod ui_regression_tests;

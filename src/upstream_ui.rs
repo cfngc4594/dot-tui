@@ -154,10 +154,13 @@ pub fn user_lines(wrapped: Vec<Line<'static>>, prefix: &str) -> Vec<Line<'static
         let is_first_line = wrap_idx == 0;
         let indent: String = " ".repeat(prefix_width);
         let line_prefix = if is_first_line { prefix } else { &indent };
-        let mut spans = vec![Span::styled(line_prefix.to_string(), prefix_style)];
+        let mut spans = vec![Span::styled(
+            line_prefix.to_string(),
+            prefix_style.patch(wrapped_line.style),
+        )];
         spans.extend(wrapped_line.spans.into_iter().map(|s| Span {
             content: s.content.to_string().into(),
-            style: s.style,
+            style: wrapped_line.style.patch(s.style),
         }));
         all_lines.push(Line::from(spans));
     }

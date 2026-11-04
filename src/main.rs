@@ -1,8 +1,11 @@
 mod backend;
+mod editor;
 mod grok_markdown;
 mod grok_scroll;
 mod journal;
 mod sanitize;
+#[allow(dead_code)]
+mod scrollbar;
 mod ui;
 use backend::{Backend, Dot, Message, SendError};
 use clap::Parser;
@@ -79,7 +82,9 @@ struct App {
     live: bool,
     older_exhausted: bool,
     enable_send: bool,
-    drafts: HashMap<String, String>,
+    drafts: HashMap<String, editor::Draft>,
+    editor_width: usize,
+    scrollbar_drag: Option<Rect>,
     review: Option<SendPlan>,
     review_scroll: u16,
     pending: Option<SendPlan>,
@@ -109,6 +114,8 @@ impl App {
             older_exhausted: false,
             enable_send: true,
             drafts: HashMap::new(),
+            editor_width: 80,
+            scrollbar_drag: None,
             review: None,
             review_scroll: 0,
             pending: None,
@@ -187,25 +194,61 @@ impl App {
         self.dots
             .get(self.selected)
             .and_then(|d| self.drafts.get(&d.id))
-            .map(String::as_str)
+            .map(|draft| draft.text.as_str())
             .unwrap_or("")
     }
+    fn draft_cursor(&self) -> usize {
+        self.dots
+            .get(self.selected)
+            .and_then(|d| self.drafts.get(&d.id))
+            .map(|d| d.cursor)
+            .unwrap_or(0)
+    }
+    fn can_edit(&self) -> bool {
+        !self.worker_failed
+            && self.enable_send
+            && self.review.is_none()
+            && self.pending.is_none()
+            && !self.uncertain
+            && !self.quit_review
+    }
     fn append(&mut self, text: &str) {
-        if self.worker_failed
-            || !self.enable_send
-            || self.review.is_some()
-            || self.pending.is_some()
-            || self.uncertain
-        {
+        if !self.can_edit() {
             return;
-        }
-        if !text.is_empty() {
-            self.last_send_accepted = false;
         }
         if let Some(d) = self.dots.get(self.selected) {
             let draft = self.drafts.entry(d.id.clone()).or_default();
-            let room = 16000usize.saturating_sub(draft.chars().count());
-            draft.extend(clean(text, true).chars().take(room));
+            let room = 16000usize.saturating_sub(draft.text.chars().count());
+            let text: String = clean(text, true).chars().take(room).collect();
+            if !text.is_empty() {
+                self.last_send_accepted = false;
+                draft.insert(&text);
+            }
+        }
+    }
+    fn edit(&mut self, code: KeyCode) {
+        if !self.can_edit() {
+            return;
+        }
+        if let Some(d) = self.dots.get(self.selected) {
+            let draft = self.drafts.entry(d.id.clone()).or_default();
+            match code {
+                KeyCode::Left => draft.left(),
+                KeyCode::Right => draft.right(),
+                KeyCode::Home => draft.home(),
+                KeyCode::End => draft.end(),
+                KeyCode::Up => draft.vertical(self.editor_width, false),
+                KeyCode::Down => draft.vertical(self.editor_width, true),
+                KeyCode::Backspace => {
+                    draft.backspace();
+                    self.last_send_accepted = false;
+                }
+                KeyCode::Delete => {
+                    draft.delete();
+                    self.last_send_accepted = false;
+                }
+                _ => {}
+            }
         }
     }
     fn review_send(&mut self) {
@@ -361,7 +404,7 @@ impl App {
                             .map(|j| j.complete(&key))
                             .unwrap_or(Ok(()));
                         self.uncertain = clear.is_err();
-                        self.drafts.insert(plan.dot.id, String::new());
+                        self.drafts.insert(plan.dot.id, editor::Draft::default());
                         self.status = clear.err().unwrap_or_else(|| {
                             "服务已接受消息（不代表 dot 已回复）。正在刷新…".into()
                         });
@@ -567,8 +610,61 @@ fn apply_scroll(app: &mut App, delta: i32, area: Rect) {
     }
 }
 fn mouse(app: &mut App, m: MouseEvent, area: Rect, tx: &mpsc::Sender<Job>) -> bool {
+    if m.kind == MouseEventKind::Up(MouseButton::Left) {
+        app.scrollbar_drag = None;
+        return false;
+    }
+    if !app.ui_visible
+        || app.review.is_some()
+        || app.quit_review
+        || app.scrollbar_drag.is_some_and(|old| old != area)
+    {
+        app.scrollbar_drag = None;
+    }
+    if !app.ui_visible || area.width < ui::MIN_WIDTH || area.height < ui::MIN_HEIGHT {
+        app.scrollbar_drag = None;
+        app.scroller.cancel();
+        return false;
+    }
+    if app.ui_visible && app.review.is_none() && !app.quit_review {
+        let timeline = ui::timeline(app, area);
+        let grab = timeline.track.is_some_and(|track| {
+            scrollbar::scrollbar_grab_zone(track).contains(Position::new(m.column, m.row))
+        });
+        if (m.kind == MouseEventKind::Down(MouseButton::Left) && grab)
+            || (m.kind == MouseEventKind::Drag(MouseButton::Left)
+                && app.scrollbar_drag == Some(area))
+        {
+            if let Some(track) = timeline.track {
+                app.scroller.cancel();
+                app.scrollbar_drag = Some(area);
+                let row = m
+                    .row
+                    .saturating_sub(track.y)
+                    .min(track.height.saturating_sub(1));
+                let offset = match scrollbar::scrollbar_click_to_offset(
+                    row,
+                    track.height,
+                    timeline.total,
+                    track.height,
+                ) {
+                    scrollbar::ScrollbarClickResult::Top => 0,
+                    scrollbar::ScrollbarClickResult::Bottom => timeline.limit(),
+                    scrollbar::ScrollbarClickResult::Offset(n) => {
+                        n.min(timeline.limit() as usize) as u16
+                    }
+                };
+                app.scroll = offset;
+                app.follow_latest = offset == timeline.limit();
+            } else {
+                app.scrollbar_drag = None;
+            }
+            return false;
+        }
+    }
     match m.kind {
         MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+            app.scrollbar_drag = None;
             if app.quit_review {
                 return false;
             }
@@ -583,6 +679,7 @@ fn mouse(app: &mut App, m: MouseEvent, area: Rect, tx: &mpsc::Sender<Job>) -> bo
         }
         MouseEventKind::Down(MouseButton::Left) => {
             app.scroller.cancel();
+            app.scrollbar_drag = None;
             if !app.ui_visible {
                 return false;
             }
@@ -636,6 +733,7 @@ impl Drop for TerminalGuard {
 /// Returns true only for an explicit exit. A confirmation modal owns all keystrokes.
 fn key(app: &mut App, k: event::KeyEvent, tx: &mpsc::Sender<Job>) -> bool {
     app.scroller.cancel();
+    app.scrollbar_drag = None;
     if k.kind == KeyEventKind::Release {
         return false;
     }
@@ -664,6 +762,16 @@ fn key(app: &mut App, k: event::KeyEvent, tx: &mpsc::Sender<Job>) -> bool {
                     app.quit_review = true;
                 } else {
                     return true;
+                }
+            }
+            KeyCode::Home | KeyCode::End if app.can_edit() => {
+                if let Some(d) = app.dots.get(app.selected) {
+                    let draft = app.drafts.entry(d.id.clone()).or_default();
+                    draft.cursor = if k.code == KeyCode::Home {
+                        0
+                    } else {
+                        draft.text.len()
+                    };
                 }
             }
             KeyCode::Char('s') => app.review_send(),
@@ -701,11 +809,14 @@ fn key(app: &mut App, k: event::KeyEvent, tx: &mpsc::Sender<Job>) -> bool {
             app.scroll = app.scroll.saturating_sub(10);
         }
         KeyCode::Home if !app.enable_send => app.scroll = 0,
-        KeyCode::Backspace if app.pending.is_none() && !app.uncertain && app.enable_send => {
-            if let Some(d) = app.dots.get(app.selected) {
-                app.drafts.entry(d.id.clone()).or_default().pop();
-            }
-        }
+        KeyCode::Left
+        | KeyCode::Right
+        | KeyCode::Home
+        | KeyCode::End
+        | KeyCode::Up
+        | KeyCode::Down
+        | KeyCode::Backspace
+        | KeyCode::Delete => app.edit(k.code),
         KeyCode::Enter => app.append("\n"),
         KeyCode::Char(c) => app.append(&c.to_string()),
         _ => {}
@@ -790,15 +901,27 @@ fn run(args: Args) -> Result<(), String> {
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))
         .map_err(|_| "Cannot initialize terminal")?;
     let mut polled = Instant::now();
+    let mut last_viewport = None;
     loop {
         app.drain(&rx, &tx);
         app.watchdog(Instant::now());
         let size = terminal.size().map_err(|_| "Cannot read terminal size")?;
         app.ui_visible = size.width >= 42 && size.height >= 18;
         let viewport = Rect::new(0, 0, size.width, size.height);
+        if last_viewport != Some(viewport) {
+            app.scrollbar_drag = None;
+            app.scroller.cancel();
+        }
+        last_viewport = Some(viewport);
+        app.editor_width = ui::input_width(&app, viewport);
+
         let delta = app.scroller.flush(Instant::now());
-        apply_scroll(&mut app, delta, viewport);
-        if app.review.is_some() {
+        if app.ui_visible {
+            apply_scroll(&mut app, delta, viewport);
+        }
+        if !app.ui_visible {
+            app.scroller.cancel();
+        } else if app.review.is_some() {
             app.review_scroll = app
                 .review_scroll
                 .min(ui::review_scroll_limit(&app, viewport));
@@ -842,9 +965,13 @@ fn run(args: Args) -> Result<(), String> {
                 }
                 Event::Paste(s) => {
                     app.scroller.cancel();
+                    app.scrollbar_drag = None;
                     app.append(&s);
                 }
-                Event::Resize(_, _) => app.scroller.cancel(),
+                Event::Resize(_, _) => {
+                    app.scroller.cancel();
+                    app.scrollbar_drag = None;
+                }
                 _ => {}
             }
         }
@@ -1178,3 +1305,6 @@ mod tests {
         assert_eq!(a.draft(), "keep")
     }
 }
+
+#[cfg(test)]
+mod interaction_tests;

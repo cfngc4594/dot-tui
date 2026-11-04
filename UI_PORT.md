@@ -49,3 +49,16 @@ corrected without forcing color; that environment still needs its regression run
 Terminal access for actual screenshots was explicitly denied. No alternative
 capture was attempted. Same-grid visual acceptance remains blocked, not completed.
 Passing unit or buffer tests is not visual equivalence or real-account verification.
+
+## 0.7 composer and scrollbar correction
+
+The empty composer keeps a muted placeholder without adding it to the draft.
+A native terminal caret follows a grapheme-aware editor and the same display-cell
+layout used for painting, including wrapped Chinese/emoji, newlines and long input.
+Its visual viewport follows the caret rather than always showing the final rows.
+The transcript now reserves the original one-column gap and one-column scrollbar
+only on overflow, remeasures at the reduced width, and shares those metrics across
+rendering, wheel bounds, click and drag. Follow mode dims the thumb; mouse-up,
+keyboard/modal ownership, paste and viewport changes cancel stale captures.
+This is the vertical scroll indicator; the separate turn timeline/bookmark rail
+and other unported selection/tool UI remain outside this change.

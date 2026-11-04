@@ -10,6 +10,8 @@ default = []
 dev-demo = []
 
 [dependencies]
+ratatui-core = "0.1"
+tui-scrollbar = "0.2"
 chrono = "0.4"
 anstyle = "1.0"
 textwrap = "0.16"
