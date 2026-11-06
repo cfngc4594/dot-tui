@@ -11,12 +11,14 @@ official Codex login. The repeated startup prompt has been removed at the userâ€
 request; this document retains the disclosure. No persistent consent grant, new
 credential or expanded account access is created. --read-only disables composing.
 Real sends require an
-existing room, a draft review, and click/Y confirmation per message. No background component can
+one bound dot with an existing room and an explicit non-repeat Enter press. No background component can
 turn a draft into a send. Sending can cause your dot to execute the supplied task.
 
 Credentials go only to fixed HTTPS paths at chatgpt.com:443. TLS checks enabled;
 redirects/proxies and ALL automatic retries disabled. Only GET dot/message lists
-and POST to an existing message room are implemented. No room creation, token
+and room-scoped metadata, image upload and message POST are implemented.
+Image downloads use a separate anonymous client, with no account headers,
+no cookies/proxies/redirects, public-address preflight and DNS pinning. No room creation, token
 refresh, account changes, computer authorization or hidden mutation endpoints.
 Credentials, bodies and transcripts are not logged or persisted. Credentials stay
 in process memory; there is no guarantee against memory inspection/crash dumps.
@@ -46,3 +48,23 @@ requires production and development-feature build verification.
 The fake backend is compiled only for unit tests or the explicit dev-demo feature.
 Do not ship a dev-demo build as production. Production never substitutes simulated
 messages when a real connection fails.
+
+Keyboard safety: a confirmed progressive keyboard handshake AND a CSI-u Enter
+source marker are required for Enter submission. Raw CR is never a send event,
+including in an enhanced session. Unsupported/unconfirmed terminals disable
+sending and retain editing/newlines. Current global modifiers are not applied
+to queued input. No global keyboard permission API is requested.
+
+
+Images are staged only on an explicit paste or local selection. No upload occurs
+until an explicit safe submission and all selected image previews have been
+flushed successfully. The existing pending marker is created before the FIRST
+upload; an upload or send with an uncertain result retains the marker and draft.
+Do not automatically retry an upload after an error, even if no message ID exists.
+
+macOS explicit image paste uses the original Grok file-URL/raster AppleScript
+probe with a private 0700 staging directory and 0600 file, a two-second helper
+deadline and child file-size cap. Normal exit cleans owned staging directories;
+no focus/idle clipboard probe runs. Crash cleanup and OS crash dumps cannot be
+guaranteed. Tests never read the real clipboard or call real account services.
+Encoded bytes/protocol payloads are redacted from Debug output.

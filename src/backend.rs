@@ -1,9 +1,9 @@
 //! Fixed-origin adapter for the unofficial ChatGPT dot protocol.
 //! Explicit send only; no token logging, retries, redirects, proxy or token refresh.
 use reqwest::{
-    blocking::Client,
-    header::{HeaderMap, HeaderValue, AUTHORIZATION},
     Url,
+    blocking::Client,
+    header::{AUTHORIZATION, HeaderMap, HeaderValue},
 };
 use serde_json::Value;
 use std::{
@@ -15,7 +15,6 @@ use std::{
 
 const BASE: &str = "https://chatgpt.com/backend-api";
 const MAX_AUTH: u64 = 1024 * 1024;
-const MAX_RESPONSE: u64 = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Dot {
@@ -30,6 +29,21 @@ pub struct Message {
     pub role: String,
     pub text: String,
     pub created_at: String,
+    pub files: Vec<String>,
+}
+
+impl Message {
+    /// Both live parser and offline fixture labels represent human messages.
+    /// Unknown authors stay expanded; do not infer the current user's identity.
+    pub fn is_human_message(&self) -> bool {
+        matches!(self.role.as_str(), "you" | "other / you")
+    }
+}
+
+pub struct MessagePage {
+    pub messages: Vec<Message>,
+    pub raw_count: usize,
+    pub next_before: Option<String>,
 }
 
 /// A local rejection guarantees no request was attempted. All post-attempt failures
@@ -41,6 +55,7 @@ pub enum SendError {
 }
 
 // Deliberately not Debug: default headers contain an account credential.
+#[derive(Clone)]
 pub struct Backend {
     client: Client,
 }
@@ -85,7 +100,7 @@ impl Backend {
         {
             return Err("Unexpected service destination refused.".into());
         }
-        let response = self.client.get(url).send().map_err(|e| {
+        let mut response = self.client.get(url).send().map_err(|e| {
             if e.is_timeout() {
                 "Read request timed out (20s limit). No automatic retry.".to_owned()
             } else if e.is_connect() {
@@ -110,17 +125,10 @@ impl Backend {
                 status.as_u16()
             ));
         }
-        if response.content_length().is_some_and(|n| n > MAX_RESPONSE) {
-            return Err("Response exceeded the safe size limit.".into());
-        }
         let mut bytes = Vec::new();
         response
-            .take(MAX_RESPONSE + 1)
             .read_to_end(&mut bytes)
             .map_err(|_| "Cannot read service response.".to_owned())?;
-        if bytes.len() as u64 > MAX_RESPONSE {
-            return Err("Response exceeded the safe size limit.".into());
-        }
         serde_json::from_slice(&bytes).map_err(|_| "Unexpected response format.".into())
     }
 
@@ -129,7 +137,7 @@ impl Backend {
     /// and a durable pending marker created before calling this method.
     pub fn send(&self, dot: &Dot, text: &str, request_id: &str) -> Result<String, SendError> {
         send_with_transport(dot, text, request_id, |url, payload| {
-            let response = self.client.post(url).json(payload).send().map_err(|_| {
+            let mut response = self.client.post(url).json(payload).send().map_err(|_| {
                 "Send outcome is uncertain. Check the official app before retrying.".to_owned()
             })?;
             let status = response.status();
@@ -140,34 +148,94 @@ impl Backend {
                     status.as_u16()
                 ));
             }
-            if response.content_length().is_some_and(|n| n > MAX_RESPONSE) {
-                return Err(
-                    "Send response exceeded the size limit. Check the official app.".into(),
-                );
-            }
             let mut bytes = Vec::new();
-            response
-                .take(MAX_RESPONSE + 1)
-                .read_to_end(&mut bytes)
-                .map_err(|_| {
-                    "Cannot read send acknowledgement. Check the official app.".to_owned()
-                })?;
-            if bytes.len() as u64 > MAX_RESPONSE {
-                return Err(
-                    "Send response exceeded the size limit. Check the official app.".into(),
-                );
-            }
+            response.read_to_end(&mut bytes).map_err(|_| {
+                "Cannot read send acknowledgement. Check the official app.".to_owned()
+            })?;
             serde_json::from_slice(&bytes)
                 .map_err(|_| "Invalid send acknowledgement. Check the official app.".into())
         })
     }
 
+    pub fn send_images(
+        &self,
+        dot: &Dot,
+        text: &str,
+        images: &[crate::prompt_images::PastedImage],
+        request_id: &str,
+    ) -> Result<String, SendError> {
+        let room = crate::image_transfer::BoundRoom::from_unique(
+            std::slice::from_ref(dot),
+            dot.room.as_deref().unwrap_or(""),
+        )
+        .map_err(|e| SendError::Rejected(e.into()))?;
+        let mut staged = Vec::new();
+        for image in images {
+            let bytes = image
+                .encoded_bytes
+                .as_ref()
+                .ok_or_else(|| SendError::Rejected("Image bytes unavailable".into()))?;
+            let mut local = crate::image_transfer::LocalImage::stage(bytes.to_vec())
+                .map_err(|e| SendError::Rejected(e.into()))?;
+            local.record_preview(true); // App checked flushed preview identity before journaling this immutable plan.
+            staged.push(local);
+        }
+        let mut wire = ImageTransport(self);
+        crate::image_transfer::transmit(&mut wire, &room, text, &staged, request_id)
+            .map_err(|e| SendError::Uncertain(e.into()))
+    }
+
+    pub fn view_image(
+        &self,
+        dot: &Dot,
+        file: &str,
+    ) -> Result<crate::prompt_images::PastedImage, String> {
+        let room = crate::image_transfer::BoundRoom::from_unique(
+            std::slice::from_ref(dot),
+            dot.room.as_deref().unwrap_or(""),
+        )
+        .map_err(str::to_owned)?;
+        crate::image_download::fetch(&mut ImageViewTransport(self), &room, file)
+    }
     pub fn list_dots(&self) -> Result<Vec<Dot>, String> {
         let url = Url::parse(&format!("{BASE}/tbo")).map_err(|_| "Invalid fixed service URL.")?;
         parse_dots(&self.get(url)?)
     }
 
-    /// Fetch one page (up to 32 messages); caller handles pagination/deduplication.
+    /// Request one page; parse every returned item without client-side truncation.
+    pub fn message_page(&self, dot: &Dot, before: Option<&str>) -> Result<MessagePage, String> {
+        let room = dot
+            .room
+            .as_deref()
+            .filter(|r| !r.is_empty())
+            .ok_or("No confirmed message room is available.")?;
+        let value = self.get(messages_url(room, before)?)?;
+        let items = value
+            .get("items")
+            .and_then(Value::as_array)
+            .ok_or("Unexpected message format.")?;
+        // Observed adapter protocol: `items` and message-ID `before` only.
+        // Do not invent has_more/next_cursor or use filtered counts as EOF.
+        let next_before = items
+            .iter()
+            .filter_map(|item| {
+                let id = item.get("id")?.as_str()?;
+                if id.is_empty() {
+                    return None;
+                }
+                let timestamp = item.get("created_at").and_then(Value::as_str).unwrap_or("");
+                Some((timestamp, id))
+            })
+            .min()
+            .map(|(_, id)| id.to_owned());
+        Ok(MessagePage {
+            raw_count: items.len(),
+            next_before,
+            messages: parse_messages(&value, dot)?,
+        })
+    }
+
+    /// Compatibility path; production pagination uses message_page metadata.
     pub fn messages(&self, dot: &Dot, before: Option<&str>) -> Result<Vec<Message>, String> {
         let Some(room) = dot.room.as_deref().filter(|s| !s.is_empty()) else {
             return Err("No message room is available; this is not a confirmed empty history. Open the official app first.".into());
@@ -199,10 +267,8 @@ fn send_with_transport<F>(
 where
     F: FnOnce(Url, &Value) -> Result<Value, String>,
 {
-    if text.trim().is_empty() || text.chars().count() > 16_000 {
-        return Err(SendError::Rejected(
-            "Message must contain 1–16000 characters and not be blank.".into(),
-        ));
+    if text.trim().is_empty() {
+        return Err(SendError::Rejected("Message must not be blank.".into()));
     }
     if !valid_request_id(request_id) {
         return Err(SendError::Rejected(
@@ -249,7 +315,7 @@ where
     let id = value
         .get("id")
         .and_then(Value::as_str)
-        .filter(|s| !s.is_empty() && s.len() <= 512 && !s.chars().any(char::is_control))
+        .filter(|s| !s.is_empty() && !s.chars().any(char::is_control))
         .ok_or_else(|| {
             SendError::Uncertain(
                 "Send acknowledgement has no valid message ID. Check the official app.".into(),
@@ -400,7 +466,6 @@ fn parse_messages(value: &Value, dot: &Dot) -> Result<Vec<Message>, String> {
         .ok_or("Unexpected message format.")?;
     let mut messages: Vec<_> = items
         .iter()
-        .take(32)
         .filter_map(|item| {
             let id = item.get("id")?.as_str()?.to_owned();
             if id.is_empty() {
@@ -411,16 +476,23 @@ fn parse_messages(value: &Value, dot: &Dot) -> Result<Vec<Message>, String> {
                     .and_then(Value::as_str)
                     .unwrap_or("此消息包含非文本内容，请在官方应用查看。"),
             );
-            if item
+            let files = item
                 .pointer("/content/attachments")
                 .and_then(Value::as_array)
-                .is_some_and(|a| !a.is_empty())
+                .into_iter()
+                .flatten()
+                .filter(|a| a.get("type").and_then(Value::as_str) == Some("file"))
+                .filter_map(|a| a.get("file_id").and_then(Value::as_str))
+                .filter(|s| !s.is_empty() && !s.chars().any(char::is_control))
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            if files.is_empty()
+                && item
+                    .pointer("/content/attachments")
+                    .and_then(Value::as_array)
+                    .is_some_and(|a| !a.is_empty())
             {
                 text.push_str("\n附件请在官方应用查看。");
-            }
-            if text.chars().count() > 16_000 {
-                text = text.chars().take(16_000).collect::<String>()
-                    + "\n[Message truncated; open the official app]";
             }
             let role = if dot.speakers.is_empty() {
                 "unknown"
@@ -441,6 +513,7 @@ fn parse_messages(value: &Value, dot: &Dot) -> Result<Vec<Message>, String> {
                 role,
                 text,
                 created_at,
+                files,
             })
         })
         .collect();
@@ -448,6 +521,71 @@ fn parse_messages(value: &Value, dot: &Dot) -> Result<Vec<Message>, String> {
     Ok(messages)
 }
 
+// Same credential-bearing fixed-origin/no-redirect client as text sends. Only
+// immutable room-scoped URLs built by image_transfer reach this transport.
+struct ImageTransport<'a>(&'a Backend);
+impl crate::image_transfer::Transport for ImageTransport<'_> {
+    fn upload(&mut self, url: Url, field: &str, mime: &str, bytes: &[u8]) -> Result<Value, ()> {
+        image_origin(&url)?;
+        let part = reqwest::blocking::multipart::Part::bytes(bytes.to_vec())
+            .file_name(match mime {
+                "image/png" => "image.png",
+                "image/jpeg" => "image.jpg",
+                "image/webp" => "image.webp",
+                "image/gif" => "image.gif",
+                "image/bmp" => "image.bmp",
+                "image/tiff" => "image.tiff",
+                _ => return Err(()),
+            })
+            .mime_str(mime)
+            .map_err(|_| ())?;
+        image_ack(
+            self.0
+                .client
+                .post(url)
+                .multipart(reqwest::blocking::multipart::Form::new().part(field.to_owned(), part))
+                .send()
+                .map_err(|_| ())?,
+        )
+    }
+    fn message(&mut self, url: Url, body: &Value) -> Result<Value, ()> {
+        image_origin(&url)?;
+        image_ack(self.0.client.post(url).json(body).send().map_err(|_| ())?)
+    }
+}
+fn image_origin(url: &Url) -> Result<(), ()> {
+    if url.scheme() != "https"
+        || url.host_str() != Some("chatgpt.com")
+        || url.port_or_known_default() != Some(443)
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !url.path().starts_with("/backend-api/messaging/rooms/")
+    {
+        Err(())
+    } else {
+        Ok(())
+    }
+}
+fn image_ack(mut response: reqwest::blocking::Response) -> Result<Value, ()> {
+    if !response.status().is_success() {
+        return Err(());
+    }
+    let mut bytes = Vec::new();
+    response.read_to_end(&mut bytes).map_err(|_| ())?;
+    serde_json::from_slice(&bytes).map_err(|_| ())
+}
+
+struct ImageViewTransport<'a>(&'a Backend);
+impl crate::image_download::Transport for ImageViewTransport<'_> {
+    fn metadata(&mut self, url: Url) -> Result<Value, String> {
+        self.0.get(url)
+    }
+    fn anonymous(&mut self, url: Url) -> Result<Vec<u8>, String> {
+        crate::image_download::download_public(url)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -562,18 +700,20 @@ mod tests {
     }
     #[test]
     fn auth_requires_chatgpt_strings() {
-        assert!(parse_auth(
-            br#"{"auth_mode":"chatgpt","tokens":{"access_token":"fake","account_id":"a"}}"#
-        )
-        .is_ok());
+        assert!(
+            parse_auth(
+                br#"{"auth_mode":"chatgpt","tokens":{"access_token":"fake","account_id":"a"}}"#
+            )
+            .is_ok()
+        );
         assert!(parse_auth(
             br#"{"auth_mode":"chatgpt","tokens":{"access_token":"fake\nX: y","account_id":"a"}}"#
         )
         .is_err());
-        assert!(parse_auth(
-            br#"{"auth_mode":"chatgpt","tokens":{"access_token":3,"account_id":"a"}}"#
-        )
-        .is_err());
+        assert!(
+            parse_auth(br#"{"auth_mode":"chatgpt","tokens":{"access_token":3,"account_id":"a"}}"#)
+                .is_err()
+        );
     }
     #[test]
     fn url_encodes_identifiers_and_stays_on_origin() {
@@ -607,9 +747,11 @@ mod tests {
         let items: Vec<_> = (0..100).map(|i| json!({"id":i.to_string(), "created_at":"2026-01", "content":{"text":"a".repeat(17000)}})).collect();
         let rows = parse_messages(&json!({"items":items}), &sample_dot()).unwrap();
         assert_eq!(rows.len(), 32);
-        assert!(rows[0]
-            .text
-            .ends_with("[Message truncated; open the official app]"));
+        assert!(
+            rows[0]
+                .text
+                .ends_with("[Message truncated; open the official app]")
+        );
         assert!(rows[0].text.len() < 16100);
     }
     #[test]
@@ -623,7 +765,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn secure_auth_rejects_world_permissions_and_symlinks() {
-        use std::os::unix::fs::{symlink, PermissionsExt};
+        use std::os::unix::fs::{PermissionsExt, symlink};
         let base = std::env::temp_dir().join(format!("dot-tui-auth-test-{}", std::process::id()));
         std::fs::create_dir_all(&base).unwrap();
         let p = base.join("synthetic.json");

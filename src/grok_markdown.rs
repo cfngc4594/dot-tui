@@ -159,6 +159,14 @@ pub fn wrap_plain(text: &str, width: usize) -> Vec<Line<'static>> {
     )
 }
 
+// Shared upstream word wrapper for styled history chips and collapsed tails.
+pub(crate) fn wrap_styled(lines: Vec<Line<'static>>, width: usize) -> Vec<Line<'static>> {
+    if width == 0 {
+        return Vec::new();
+    }
+    wrap_bounded(lines, width.min(4096))
+}
+
 fn wrap_bounded(
     lines: impl IntoIterator<Item = Line<'static>>,
     width: usize,
@@ -285,13 +293,13 @@ mod tests {
             "let example = 42;"
         );
         assert!(lines.iter().all(|line| line.width() <= 12));
-        assert!(lines
-            .iter()
-            .any(|line| line.style.bg == Some(Color::Rgb(28, 28, 28))
+        assert!(lines.iter().any(|line| {
+            line.style.bg == Some(Color::Rgb(28, 28, 28))
                 || line
                     .spans
                     .iter()
-                    .any(|span| span.style.bg == Some(Color::Rgb(28, 28, 28)))));
+                    .any(|span| span.style.bg == Some(Color::Rgb(28, 28, 28)))
+        }));
         let syntax_colors = lines
             .iter()
             .flat_map(|line| &line.spans)
@@ -324,9 +332,11 @@ mod tests {
         assert!(lines.iter().all(|line| line.width() <= 14));
         let populated: Vec<_> = lines.iter().filter(|line| !line.spans.is_empty()).collect();
         assert!(populated.len() > 1);
-        assert!(populated
-            .iter()
-            .all(|line| plain(&[(*line).clone()]).starts_with("│ ")));
+        assert!(
+            populated
+                .iter()
+                .all(|line| plain(&[(*line).clone()]).starts_with("│ "))
+        );
         assert!(has_style(&lines, "one", Modifier::BOLD));
         assert!(has_style(&lines, "ten", Modifier::BOLD));
     }

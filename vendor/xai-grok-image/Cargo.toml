@@ -1,0 +1,9 @@
+[package]
+name = "xai-grok-image"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+[dependencies]
+crc32fast = "1.4"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico"] }
+thiserror = "2"

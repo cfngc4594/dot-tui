@@ -1,0 +1,25 @@
+{
+  "required_packages": [
+    "two-face"
+  ],
+  "packages": {
+    "two-face-0.4.5": {
+      "name": "two-face",
+      "version": "0.4.5",
+      "scope": "Complete embedded syntax/theme acknowledgement document retained; markdown build uses the extra_newlines syntax set. Themes are conservatively retained as part of the complete upstream document.",
+      "files": {
+        "ACKNOWLEDGEMENTS.md": {
+          "source": "https://github.com/CosmicHorrorDev/two-face/blob/4f766bcb4499f6340e8d6dd715ab64f52c6e8ca4/generated/acknowledgements_full.md",
+          "blob_sha": "cb7d096c545ba60495476ef76d30f129a8342648",
+          "sha256": "55be6f98f911df5cecc95275d95b75a916c3f4efb5f0dd322c7f835a60aedeab"
+        },
+        "NOTICE-bat.md": {
+          "source": "https://github.com/CosmicHorrorDev/two-face/blob/4f766bcb4499f6340e8d6dd715ab64f52c6e8ca4/README.md",
+          "source_blob_sha": "436349ab99fb6e982e29e1cc7545c3507028328d",
+          "extracted_section": "bat's NOTICE",
+          "sha256": "c961442f51ca9e3e415f2457885e3593d9e642b88e0dbc1e9699313cdcf6440c"
+        }
+      }
+    }
+  }
+}

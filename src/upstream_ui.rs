@@ -9,7 +9,7 @@
 // Modifications: replace application/theme/config dependencies with explicit
 // parameters; remove agent task panes, model picker, selection/collapse and tool
 // controls; retain the original layout order, padding, prompt sizing formula,
-// divider painting and prompt prefix/continuation algorithm. Dot-specific safe
+// divider painting and prompt prefix/continuation algorithm. Dot-specific pending-exit
 // confirmation stays in ui.rs. No upstream backend/runtime is included.
 use ratatui::{
     prelude::*,
@@ -20,7 +20,6 @@ pub const BASE: Color = Color::Rgb(18, 18, 18);
 pub const BAND: Color = Color::Rgb(35, 35, 35);
 pub const TEXT: Color = Color::Rgb(190, 190, 190);
 pub const MUTED: Color = Color::Rgb(105, 105, 105);
-pub const BORDER: Color = Color::Rgb(48, 48, 48);
 
 pub struct AgentLayout {
     pub top: Rect,
@@ -40,9 +39,9 @@ pub fn compute(area: Rect, text_height: u16) -> AgentLayout {
         Constraint::Length(1), // StatusBar
         Constraint::Length(1), // status_gap
         Constraint::Min(1),    // scrollback
-        Constraint::Length(1), // turn_status gap
+        Constraint::Length(0), // compact dot status: no surrounding blank rows
         Constraint::Length(1), // turn_status
-        Constraint::Length(1), // prompt_gap
+        Constraint::Length(0), // compact dot status touches prompt chrome
         Constraint::Length(prompt_height),
         Constraint::Length(1), // shortcuts_gap
         Constraint::Length(1), // shortcuts
@@ -66,9 +65,9 @@ pub fn fill_background(buf: &mut Buffer, area: Rect) {
     outer_styled.render(area, buf);
 }
 /// Compute the content width inside the chrome (if any).
-/// Upstream PromptWidget::content_width with chrome=true, accent=1, pads=2/1.
+/// Upstream PromptWidget::content_width with chrome=true, show_accent_line=false, pads=2/1 (PromptStyle::default).
 pub fn content_width(area_width: u16) -> u16 {
-    area_width.saturating_sub(1 + 2 + 1)
+    area_width.saturating_sub(2 + 1)
 }
 /// Height = vpad_top + textarea rows + info line. Clamped to max_height.
 /// Adapted PromptWidget::desired_height. Dot has no history-browser freeze or
@@ -83,11 +82,17 @@ pub fn desired_height(text_height: u16, max_height: u16) -> u16 {
 }
 /// Adapted verbatim divider/side painting algorithm from PromptWidget::draw.
 /// Theme and viewport extracted into arguments, caption overlays handled by caller.
-pub fn prompt_chrome(buf: &mut Buffer, area: Rect) {
+pub fn prompt_chrome(buf: &mut Buffer, area: Rect, focused: bool) {
     if area.width < 2 || area.height < 2 {
         return;
     }
-    let div_style = Style::default().fg(BORDER).bg(BASE);
+    let div_style = Style::default()
+        .fg(if focused {
+            Color::Rgb(80, 80, 88)
+        } else {
+            Color::Rgb(50, 50, 55)
+        })
+        .bg(Color::Rgb(20, 20, 20));
     let left_x = area.x;
     let right_x = area.x + area.width.saturating_sub(1);
     // Top divider: ╭──────────╮
@@ -137,11 +142,7 @@ pub fn prompt_chrome(buf: &mut Buffer, area: Rect) {
 /// When non-zero, content is wrapped at `content_width - reserved` so text never
 /// collides with the timestamp overlay. From EntryRenderer::timestamp_reserved.
 pub fn timestamp_reserved(show: bool) -> u16 {
-    if show {
-        10
-    } else {
-        0
-    }
+    if show { 10 } else { 0 }
 }
 /// Adapted wrap_prompt_lines prefix/continuation loop. Wrapping is injected so
 /// both our Markdown and plaintext paths use the same bounded display cells.
@@ -176,4 +177,43 @@ pub fn activity_frame(elapsed_ms: u128) -> &'static str {
         "\u{2827}",
     ];
     FRAMES[((elapsed_ms / 133) as usize) % FRAMES.len()]
+}
+
+/// AgentViewLayout::compute scrollbar placement, using ScrollbarConfig::default
+/// gap_left=0, gap_right=0. The track uses OUTER area; content is clamped to
+/// the existing scrollback pane's right edge, rather than shrinking inner width.
+pub fn scrollbar_geometry(area: Rect, scrollback: Rect) -> (Rect, Option<Rect>) {
+    let gap_right: u16 = 0;
+    let gap_left: u16 = 0;
+    let scrollbar_x = area.right().saturating_sub(gap_right + 1);
+    let content_end_x = scrollbar_x.saturating_sub(gap_left);
+    let scrollback_right = scrollback.x + scrollback.width;
+    let scrollback_content = if content_end_x >= scrollback_right {
+        scrollback
+    } else {
+        Rect {
+            width: content_end_x.saturating_sub(scrollback.x),
+            ..scrollback
+        }
+    };
+    (
+        scrollback_content,
+        Some(Rect::new(scrollbar_x, scrollback.y, 1, scrollback.height)),
+    )
+}
+
+/// PromptWidget unfocused post-pass, render/color.rs recede_area with fixed
+/// GrokNight RGB background and original opacity 0.66; no theme runtime.
+pub fn recede_prompt(buf: &mut Buffer, area: Rect) {
+    for y in area.y..area.bottom() {
+        for x in area.x..area.right() {
+            if let Some(cell) = buf.cell_mut((x, y))
+                && let Color::Rgb(r, g, b) = cell.fg
+            {
+                let blend =
+                    |original: u8| (20.0_f32 * (1.0 - 0.66) + original as f32 * 0.66).round() as u8;
+                cell.set_fg(Color::Rgb(blend(r), blend(g), blend(b)));
+            }
+        }
+    }
 }

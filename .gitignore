@@ -1,9 +1,9 @@
 target/
+target-*/
+__pycache__/
+*.py[cod]
 *.log
 .DS_Store
 auth.json
 
-target-dev/
-.env
-*.pem
-*.key
+dist/

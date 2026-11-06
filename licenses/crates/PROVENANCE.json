@@ -1,0 +1,17 @@
+{
+  "objc2-0.6.3": {
+    "source": "https://github.com/madsmtm/objc2/blob/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md",
+    "blob_sha": "540ae4c81adb5f64a9f61e222b688880da24300e",
+    "license_selected": "MIT"
+  },
+  "objc2-encode-4.1.0": {
+    "source": "https://github.com/madsmtm/objc2/blob/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md",
+    "blob_sha": "540ae4c81adb5f64a9f61e222b688880da24300e",
+    "license_selected": "MIT"
+  },
+  "tui-scrollbar-0.2.8": {
+    "source": "https://github.com/ratatui/tui-widgets/blob/c26a68722072987daccf6035e4f5d586ff7b4469/LICENSE-MIT",
+    "blob_sha": "36ee02d053b55d050cc800dd3d84e5ab36b3d852",
+    "license_selected": "MIT"
+  }
+}

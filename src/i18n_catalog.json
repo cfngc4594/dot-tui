@@ -1,0 +1,914 @@
+[
+  [
+    "Not connected",
+    "尚未连接"
+  ],
+  [
+    "No messages loaded yet",
+    "尚未完成消息读取"
+  ],
+  [
+    "{0} · {1}s",
+    "{0} · {1}秒"
+  ],
+  [
+    "Preparing image…",
+    "正在准备并打开图片…"
+  ],
+  [
+    "Processing image…",
+    "正在处理图片…"
+  ],
+  [
+    "Preparing image preview…",
+    "正在准备图片预览…"
+  ],
+  [
+    "Loading history images…",
+    "正在加载历史图片…"
+  ],
+  [
+    "Laying out history…",
+    "正在排版历史…"
+  ],
+  [
+    "Image: {0}",
+    "图片：{0}"
+  ],
+  [
+    "History paused; select Retry history",
+    "历史读取已暂停；点击重试历史"
+  ],
+  [
+    "{0}; send result uncertain. Check the official app; do not resend.",
+    "{0}；发送结果不确定，请核对官方应用，勿重发。"
+  ],
+  [
+    "{0}; read result unconfirmed. Exit and restart.",
+    "{0}；未能确认本次读取结果，请退出后重启。"
+  ],
+  [
+    "Login expired; sign in with the official app, then restart dot-tui",
+    "登录已失效；请在官方应用重新登录后重启 dot-tui"
+  ],
+  [
+    "{0}; retrying read in {1}s",
+    "{0}；{1}秒后自动重试读取"
+  ],
+  [
+    "Worker disconnected",
+    "后台连接已断开"
+  ],
+  [
+    "Reading image metadata and downloading anonymously; no message will be sent.",
+    "读取图片元数据与匿名下载；不会发送消息。"
+  ],
+  [
+    "Image-view worker unavailable",
+    "图片查看后台不可用"
+  ],
+  [
+    "Preparing local image; not uploaded.",
+    "正在准备本地图片；尚未上传。"
+  ],
+  [
+    "Image worker unavailable; not uploaded.",
+    "图片后台不可用，未上传。"
+  ],
+  [
+    "Preview every image first; enlarge the window if needed.",
+    "请先预览每张图片；窗口过窄时请放大。"
+  ],
+  [
+    "Sending message",
+    "提交消息"
+  ],
+  [
+    "Worker unavailable; message not sent.",
+    "后台不可用，消息未发出。"
+  ],
+  [
+    "Sending; exiting or timing out cannot recall the request. Do not resend.",
+    "正在提交；退出或超时不能撤回请求，请勿重复发送。"
+  ],
+  [
+    "Image cache full; click to prioritize loading",
+    "当前图片缓存容量不足；点击打开可优先加载"
+  ],
+  [
+    "Visible images fill the session cache; click Open Image to prioritize one",
+    "可见图片达到会话缓存预算；点击 Open Image 可优先打开"
+  ],
+  [
+    "Image load failed: {0}; click Open Image to retry",
+    "图片加载失败：{0}；点击 Open Image 重试"
+  ],
+  [
+    "Image exceeds session cache budget; not opened",
+    "图片超过会话缓存预算，未打开"
+  ],
+  [
+    "Image ready; return to the window and click Open Image.",
+    "图片已准备；返回窗口后点击 Open Image 打开。"
+  ],
+  [
+    "Too many images; selection was not added.",
+    "图片数量超过十张，本次选择未加入。"
+  ],
+  [
+    "Image prepared locally; it will upload only when sent.",
+    "图片已在本地准备，发送前不会上传。"
+  ],
+  [
+    "Multiple dots found; cannot determine the conversation. Use the official app.",
+    "发现多个 dot，无法确定当前会话；请使用官方应用。"
+  ],
+  [
+    "No dot found",
+    "没有找到 dot"
+  ],
+  [
+    "Loaded dot list",
+    "已读取 dot 列表"
+  ],
+  [
+    "No messages returned on this page; history end is unconfirmed. Select Retry history or press Ctrl+H.",
+    "本页未返回消息；未确认历史已结束，点击底部“重试历史”或按 Ctrl+H 重试"
+  ],
+  [
+    "Paging cursor did not advance; automatic paging paused. Select Retry history or press Ctrl+H. Earlier messages may still exist.",
+    "分页游标未推进；已暂停自动翻页，点击底部“重试历史”或按 Ctrl+H 重试；不代表没有更早消息"
+  ],
+  [
+    "{0}Loaded {1} messages on this page",
+    "{0}本页已读取 {1} 条消息"
+  ],
+  [
+    "Send accepted; ",
+    "提交已获服务接受；"
+  ],
+  [
+    "{0} new messages; reading position preserved",
+    "新增 {0} 条消息；保留当前阅读位置"
+  ],
+  [
+    "Loaded {0} on this page. Scroll up for earlier messages.",
+    "已读取 {0} 条；只代表当前分页。向上滚动读取更早消息。"
+  ],
+  [
+    "Earlier history failed: {0}; select Retry history or press Ctrl+H. Background updates continue.",
+    "加载更早失败：{0}；点击底部“重试历史”或按 Ctrl+H 重试；后台更新继续"
+  ],
+  [
+    "Service accepted the message; dot may still be working",
+    "服务已接受消息（不代表 dot 已完成）"
+  ],
+  [
+    "Service accepted the message; waiting for a dot reply. Reading latest messages…",
+    "服务已接受消息（不代表 dot 已回复）。正在读取最新消息…"
+  ],
+  [
+    "{0}; no automatic resend. Edit, then press Enter to submit again.",
+    "{0}；未自动重试，编辑后 Enter 可重新提交。"
+  ],
+  [
+    "Local image preparation: {0}",
+    "本地图片准备：{0}"
+  ],
+  [
+    "No earlier messages.",
+    "没有更多更早消息。"
+  ],
+  [
+    "Reading messages",
+    "读取消息"
+  ],
+  [
+    "Reading…",
+    "正在读取…"
+  ],
+  [
+    "Reconnecting and reading dot list",
+    "自动重连并读取 dot 列表"
+  ],
+  [
+    "Original message is no longer in the page; keeping the available scroll position.",
+    "原阅读消息已不在当前页，保留可用滚动位置。"
+  ],
+  [
+    "Image worker disconnected",
+    "图片后台未连接"
+  ],
+  [
+    "Connecting and reading dot list",
+    "准备连接并读取 dot 列表"
+  ],
+  [
+    "Previous send is unconfirmed; sending locked. Check the official app first.",
+    "上次发送结果未确认，发送已锁定。请先在官方应用核对。"
+  ],
+  [
+    "Reading dot list…",
+    "读取 dot 列表…"
+  ],
+  [
+    "Run dot-tui in an interactive terminal; login data has not been read.",
+    "请在交互终端中运行 dot-tui；尚未读取登录信息。"
+  ],
+  [
+    "Enlarge the window to 42×18; Ctrl+Q to quit",
+    "请放大窗口至 42×18；Ctrl+Q 退出"
+  ],
+  [
+    " Confirm exit ",
+    " 确认退出 "
+  ],
+  [
+    "A request is being sent. Exiting cannot recall it; the result may be uncertain.\n\nSending will be locked after restart. Check the official app first.",
+    "请求正在提交。退出不会撤回请求，结果可能不确定。\n\n重启后将锁定发送，请先核对官方应用。"
+  ],
+  [
+    "Cancel",
+    "取消"
+  ],
+  [
+    "Exit anyway",
+    "仍然退出"
+  ],
+  [
+    "Retry history",
+    "重试历史"
+  ],
+  [
+    "Cannot read the selected directory",
+    "无法读取选择目录"
+  ],
+  [
+    "Up to ten images per selection",
+    "一次最多选择十张图片"
+  ],
+  [
+    "Image clipboard is unavailable on this platform; use @ to select a local image",
+    "此平台尚未接入图片剪贴板；请使用 @ 选择本地图片"
+  ],
+  [
+    "Image data is no longer available",
+    "图片数据已不可用"
+  ],
+  [
+    "Image exceeds the local limit",
+    "图片超过本地限制"
+  ],
+  [
+    "Original, converted and transfer data exceed the 64 MiB session budget",
+    "图片原始/转换及传输数据超过64MiB会话缓存预算"
+  ],
+  [
+    "Cannot create private image cache",
+    "无法建立私有图片缓存"
+  ],
+  [
+    "Unsupported image format",
+    "不支持的图片格式"
+  ],
+  [
+    "Cannot prepare the local image file",
+    "无法准备本地图片查看文件"
+  ],
+  [
+    "Metadata request: {0}",
+    "元数据请求：{0}"
+  ],
+  [
+    "Metadata format: {0}",
+    "元数据格式：{0}"
+  ],
+  [
+    "Download: {0}",
+    "下载：{0}"
+  ],
+  [
+    "Image decode: {0}",
+    "图片解码：{0}"
+  ],
+  [
+    "Image validation: metadata does not match the decoded format",
+    "图片校验：元数据与实际格式不一致"
+  ],
+  [
+    "Image validation/decode: {0}",
+    "图片校验/解码：{0}"
+  ],
+  [
+    "Secure resolver fallback is restricted to official image domains",
+    "非官方图片域名不使用安全解析回退"
+  ],
+  [
+    "Cannot initialize secure image resolver",
+    "无法建立图片安全解析器"
+  ],
+  [
+    "Official CDN secure DNS failed; no private image address was accessed",
+    "官方CDN安全DNS请求失败；未访问非公网图片地址"
+  ],
+  [
+    "Official CDN secure DNS refused the request",
+    "官方CDN安全DNS服务拒绝请求"
+  ],
+  [
+    "Invalid secure DNS response",
+    "安全DNS响应格式无效"
+  ],
+  [
+    "Secure DNS could not resolve the official image CDN",
+    "安全DNS未能解析官方图片CDN"
+  ],
+  [
+    "Secure DNS returned no trusted public image address; connection refused",
+    "安全DNS未返回可信公网图片地址；已拒绝连接"
+  ],
+  [
+    "Image download has no host",
+    "图片下载缺少主机"
+  ],
+  [
+    "Cannot resolve the image host",
+    "无法解析图片下载主机"
+  ],
+  [
+    "DNS returned a non-public image address; connection refused. Check proxy DNS settings.",
+    "DNS返回非公网图片地址，已拒绝连接；请检查代理DNS配置"
+  ],
+  [
+    "Cannot initialize anonymous downloader",
+    "无法建立匿名下载器"
+  ],
+  [
+    "Image download failed; no automatic retry",
+    "图片下载失败；不会自动重试"
+  ],
+  [
+    "Image download refused or redirected; redirect not followed",
+    "图片下载被拒绝或重定向；未跟随"
+  ],
+  [
+    "Image exceeds 20 MiB",
+    "图片超过20 MiB"
+  ],
+  [
+    "Image read failed",
+    "图片读取失败"
+  ],
+  [
+    "Format: {0}",
+    "格式：{0}"
+  ],
+  [
+    "Dimensions: {0} x {1}",
+    "尺寸：{0} x {1}"
+  ],
+  [
+    "Size: {0}",
+    "大小：{0}"
+  ],
+  [
+    "Path: {0}",
+    "路径：{0}"
+  ],
+  [
+    "Preview unavailable",
+    "预览不可用"
+  ],
+  [
+    "Preview pending",
+    "正在准备预览"
+  ],
+  [
+    "Loading...",
+    "加载中…"
+  ],
+  [
+    "Esc close",
+    "Esc 关闭"
+  ],
+  [
+    " Image #{0} ",
+    " 图片 #{0} "
+  ],
+  [
+    "Image",
+    "图片"
+  ],
+  [
+    "Cannot locate language preferences",
+    "无法定位语言偏好设置"
+  ],
+  [
+    "Cannot inspect language preferences",
+    "无法检查语言偏好设置"
+  ],
+  [
+    "Language preferences must be private regular files",
+    "语言偏好必须位于私有目录和普通文件中"
+  ],
+  [
+    "Cannot read language preferences",
+    "无法读取语言偏好设置"
+  ],
+  [
+    "Invalid language preference; using English",
+    "语言偏好无效；已使用英文"
+  ],
+  [
+    "Cannot create language preferences",
+    "无法建立语言偏好设置"
+  ],
+  [
+    "Cannot save language preference",
+    "无法保存语言偏好"
+  ],
+  [
+    "Interface language saved",
+    "界面语言已保存"
+  ],
+  [
+    "Choose English or Chinese with /language",
+    "请使用 /language 选择英文或中文"
+  ],
+  [
+    "Invalid login fields.",
+    "登录字段无效。"
+  ],
+  [
+    "Cannot initialize secure transport.",
+    "无法初始化安全连接。"
+  ],
+  [
+    "Unexpected service destination refused.",
+    "已拒绝非预期的服务地址。"
+  ],
+  [
+    "Read request timed out (20s limit). No automatic retry.",
+    "读取请求超时（20秒）；本次请求不会自动重试。"
+  ],
+  [
+    "Read request timed out (20s limit).",
+    "读取请求超时（20秒）。"
+  ],
+  [
+    "Connection could not be established. No automatic retry.",
+    "无法建立连接；本次请求不会自动重试。"
+  ],
+  [
+    "Connection could not be established.",
+    "无法建立连接。"
+  ],
+  [
+    "Network request failed. No automatic retry.",
+    "网络请求失败；本次请求不会自动重试。"
+  ],
+  [
+    "Network request failed.",
+    "网络请求失败。"
+  ],
+  [
+    "Session expired.",
+    "登录已失效。"
+  ],
+  [
+    "Rate limited.",
+    "请求过于频繁。"
+  ],
+  [
+    "Unexpected message format.",
+    "消息格式不符合预期。"
+  ],
+  [
+    "No confirmed message room is available.",
+    "没有已确认的消息会话。"
+  ],
+  [
+    "No message room is available; this is not a confirmed empty history. Open the official app first.",
+    "消息会话不可用；不能据此判定历史为空。请先打开官方应用。"
+  ],
+  [
+    "No existing message room. Open this dot in the official app first.",
+    "尚无消息会话；请先在官方应用打开此 dot。"
+  ],
+  [
+    "Message must not be blank.",
+    "消息不能为空。"
+  ],
+  [
+    "Unexpected send destination refused.",
+    "已拒绝非预期的发送地址。"
+  ],
+  [
+    "Send acknowledgement has no valid message ID. Check the official app.",
+    "发送确认没有有效消息 ID；请核对官方应用。"
+  ],
+  [
+    "image exceeds 20 MiB",
+    "图片超过 20 MiB"
+  ],
+  [
+    "invalid or unsupported image",
+    "图片无效或格式不受支持"
+  ],
+  [
+    "image exceeds local preview pixel limit",
+    "图片超过本地预览像素限制"
+  ],
+  [
+    "truncated JPEG",
+    "JPEG 数据不完整"
+  ],
+  [
+    "unrecognized image",
+    "无法识别图片"
+  ],
+  [
+    "invalid image pixel data",
+    "图片像素数据无效"
+  ],
+  [
+    "image dimensions changed",
+    "图片尺寸发生变化"
+  ],
+  [
+    "Terminal draw failed",
+    "终端绘制失败"
+  ],
+  [
+    "Terminal event failed",
+    "终端事件处理失败"
+  ],
+  [
+    "Terminal read failed",
+    "终端读取失败"
+  ],
+  [
+    "Cannot read terminal size",
+    "无法读取终端尺寸"
+  ],
+  [
+    "Cannot locate login path",
+    "无法定位登录文件"
+  ],
+  [
+    "Cannot locate send state",
+    "无法定位发送状态"
+  ],
+  [
+    "Redirect refused. Check access in the official app.",
+    "已拒绝重定向；请在官方应用检查访问权限。"
+  ],
+  [
+    "Session expired. Sign in with official Codex, then restart.",
+    "登录已失效；请通过官方 Codex 登录后重启。"
+  ],
+  [
+    "Rate limited. Pause refresh and try later.",
+    "请求过于频繁；请稍后再试。"
+  ],
+  [
+    "Service returned HTTP {0}. No automatic retry.",
+    "服务返回 HTTP {0}；本次请求不会自动重试。"
+  ],
+  [
+    "Service returned HTTP {0}.",
+    "服务返回 HTTP {0}。"
+  ],
+  [
+    "Cannot read service response.",
+    "无法读取服务响应。"
+  ],
+  [
+    "Unexpected response format.",
+    "响应格式不符合预期。"
+  ],
+  [
+    "Send outcome is uncertain. Check the official app before retrying.",
+    "发送结果不确定；请先核对官方应用再重试。"
+  ],
+  [
+    "Send returned HTTP {0}. Check the official app before retrying.",
+    "发送返回 HTTP {0}；请先核对官方应用再重试。"
+  ],
+  [
+    "Cannot read send acknowledgement. Check the official app.",
+    "无法读取发送确认；请核对官方应用。"
+  ],
+  [
+    "Invalid send acknowledgement. Check the official app.",
+    "发送确认无效；请核对官方应用。"
+  ],
+  [
+    "Image bytes unavailable",
+    "图片数据不可用"
+  ],
+  [
+    "Invalid fixed service URL.",
+    "固定服务地址无效。"
+  ],
+  [
+    "Request ID must be a canonical UUID.",
+    "请求 ID 必须为规范 UUID。"
+  ],
+  [
+    "Invalid message room identifier.",
+    "消息会话标识无效。"
+  ],
+  [
+    "Live login is currently supported only on Unix; Windows ACL validation is not implemented.",
+    "当前仅支持 Unix 实时登录；尚未实现 Windows ACL 验证。"
+  ],
+  [
+    "Cannot securely open login file. Use official Codex login first.",
+    "无法安全打开登录文件；请先使用官方 Codex 登录。"
+  ],
+  [
+    "Cannot inspect login file.",
+    "无法检查登录文件。"
+  ],
+  [
+    "Login must be a regular file owned by you with no group/other permissions.",
+    "登录文件必须为你所有的普通文件，且不开放组或其他用户权限。"
+  ],
+  [
+    "Login file exceeds size limit.",
+    "登录文件超过大小限制。"
+  ],
+  [
+    "Cannot read login file.",
+    "无法读取登录文件。"
+  ],
+  [
+    "Invalid login file format.",
+    "登录文件格式无效。"
+  ],
+  [
+    "ChatGPT login required; API-key login is not supported.",
+    "需要 ChatGPT 登录；不支持 API 密钥登录。"
+  ],
+  [
+    "Login fields are missing or invalid.",
+    "登录字段缺失或无效。"
+  ],
+  [
+    "Unexpected dot list format.",
+    "dot 列表格式不符合预期。"
+  ],
+  [
+    "requires one verified dot",
+    "需要唯一且已验证的 dot"
+  ],
+  [
+    "room binding changed",
+    "会话绑定已改变"
+  ],
+  [
+    "invalid room/file identifier",
+    "会话或文件标识无效"
+  ],
+  [
+    "requires locally previewed images",
+    "请先在本地预览图片"
+  ],
+  [
+    "requires canonical request UUID",
+    "需要规范的请求 UUID"
+  ],
+  [
+    "pending request or journal unavailable",
+    "存在待确认请求或发送记录不可用"
+  ],
+  [
+    "accepted but journal remains locked",
+    "服务已接受请求，但发送记录仍被锁定"
+  ],
+  [
+    "invalid image submission",
+    "图片提交无效"
+  ],
+  [
+    "upload uncertain; pending lock retained",
+    "上传结果不确定；保留发送锁"
+  ],
+  [
+    "invalid upload acknowledgement; pending lock retained",
+    "上传确认无效；保留发送锁"
+  ],
+  [
+    "send uncertain; pending lock retained",
+    "发送结果不确定；保留发送锁"
+  ],
+  [
+    "invalid message acknowledgement; pending lock retained",
+    "消息确认无效；保留发送锁"
+  ],
+  [
+    "unsupported image metadata",
+    "图片元数据不受支持"
+  ],
+  [
+    "missing download URL",
+    "缺少下载地址"
+  ],
+  [
+    "invalid download URL",
+    "下载地址无效"
+  ],
+  [
+    "unsafe image download URL",
+    "图片下载地址不安全"
+  ],
+  [
+    "missing image download host",
+    "缺少图片下载主机"
+  ],
+  [
+    "local image download host refused",
+    "已拒绝本地图片下载主机"
+  ],
+  [
+    "private image download address refused",
+    "已拒绝非公共网络图片下载地址"
+  ],
+  [
+    "Sending requires Unix secure state permissions.",
+    "发送需要 Unix 安全状态权限。"
+  ],
+  [
+    "Cannot secure send state directory",
+    "无法保护发送状态目录"
+  ],
+  [
+    "Send state directory needs a parent",
+    "发送状态目录缺少父目录"
+  ],
+  [
+    "Cannot create send state directory",
+    "无法建立发送状态目录"
+  ],
+  [
+    "Cannot inspect send state directory",
+    "无法检查发送状态目录"
+  ],
+  [
+    "Send state directory must be private, owned by you, and not a symlink",
+    "发送状态目录必须私有、归你所有，且不能是符号链接"
+  ],
+  [
+    "Invalid request key",
+    "请求标识无效"
+  ],
+  [
+    "Pending send exists or state cannot be written. Verify the official app before sending again.",
+    "存在待确认发送或无法写入状态；再次发送前请核对官方应用。"
+  ],
+  [
+    "Cannot persist send state; sending is blocked",
+    "无法保存发送状态；已禁止发送"
+  ],
+  [
+    "Cannot inspect pending send; remains blocked",
+    "无法检查待确认发送；继续锁定"
+  ],
+  [
+    "Cannot inspect pending send",
+    "无法检查待确认发送"
+  ],
+  [
+    "Unexpected pending state; remains blocked",
+    "待确认状态不符合预期；继续锁定"
+  ],
+  [
+    "Cannot read pending send",
+    "无法读取待确认发送"
+  ],
+  [
+    "Pending request changed; remains blocked",
+    "待确认请求已改变；继续锁定"
+  ],
+  [
+    "Cannot clear accepted send marker; remains blocked",
+    "无法清除已接受请求标记；继续锁定"
+  ],
+  [
+    "Cannot sync send state directory",
+    "无法同步发送状态目录"
+  ],
+  [
+    "cannot open selected image",
+    "无法打开所选图片"
+  ],
+  [
+    "cannot inspect selected image",
+    "无法检查所选图片"
+  ],
+  [
+    "selected image is not a regular file within 20 MiB",
+    "所选图片必须是不超过 20 MiB 的普通文件"
+  ],
+  [
+    "cannot read selected image",
+    "无法读取所选图片"
+  ],
+  [
+    "clipboard staging unavailable",
+    "剪贴板暂存不可用"
+  ],
+  [
+    "application is closing",
+    "应用正在退出"
+  ],
+  [
+    "cannot create private clipboard staging",
+    "无法建立私有剪贴板暂存"
+  ],
+  [
+    "cannot create clipboard staging file",
+    "无法建立剪贴板暂存文件"
+  ],
+  [
+    "cannot create clipboard response file",
+    "无法建立剪贴板响应文件"
+  ],
+  [
+    "cannot unlink clipboard response",
+    "无法移除剪贴板响应文件"
+  ],
+  [
+    "clipboard response unavailable",
+    "剪贴板响应不可用"
+  ],
+  [
+    "clipboard helper unavailable",
+    "剪贴板辅助进程不可用"
+  ],
+  [
+    "clipboard helper failed",
+    "剪贴板辅助进程失败"
+  ],
+  [
+    "clipboard image read failed; no image uploaded",
+    "读取剪贴板图片失败；未上传图片"
+  ],
+  [
+    "clipboard helper timed out; no image uploaded",
+    "剪贴板辅助进程超时；未上传图片"
+  ],
+  [
+    "invalid clipboard response",
+    "剪贴板响应无效"
+  ],
+  [
+    "clipboard file list too large",
+    "剪贴板文件列表过大"
+  ],
+  [
+    "at most ten images may be pasted",
+    "一次最多粘贴十张图片"
+  ],
+  [
+    "clipboard image unavailable",
+    "剪贴板图片不可用"
+  ],
+  [
+    "clipboard image is not a file",
+    "剪贴板图片不是普通文件"
+  ],
+  [
+    "cannot read clipboard image",
+    "无法读取剪贴板图片"
+  ],
+  [
+    "Finish or clear image attachments before changing language",
+    "切换语言前请先完成或清空图片附件"
+  ],
+  [
+    "Still preparing earlier pasted images; try again shortly",
+    "仍在准备之前粘贴的图片，请稍后再试"
+  ],
+  [
+    "Paste is unavailable while input is locked",
+    "输入锁定期间暂时不能粘贴"
+  ],
+  [
+    "Clipboard has no image or text to paste",
+    "剪贴板中没有可粘贴的图片或文字"
+  ],
+  [
+    "Clipboard changed before the paste could be read; paste again",
+    "读取前剪贴板已变化，请重新粘贴"
+  ],
+  [
+    "Clipboard changed during paste; paste again",
+    "粘贴过程中剪贴板已变化，请重新粘贴"
+  ],
+  [
+    "Clipboard text read failed: {0}",
+    "读取剪贴板文字失败：{0}"
+  ]
+]

@@ -1,0 +1,36 @@
+name: Prepare macOS arm64 release
+
+# Preparation only: no tag/push trigger, GitHub Release, publishing credentials
+# or write permission. This workflow has not been triggered during local work.
+'on':
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install declared build toolchain
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal
+          rustup override set 1.89.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Parse installer syntax
+        run: sh -n install.sh
+      - name: Build and package without running the app or tests
+        run: python3 tools/build_release.py
+      - name: Retain prepared bundle for review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dot-tui-macos-arm64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14

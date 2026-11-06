@@ -26,11 +26,11 @@ integration are adapted to a single existing dot conversation.
 
 - Dot does not expose Grok coding-agent task/tool/diff blocks through this text
   adapter. No fake tool state, token counts or model identity are displayed.
-- Timestamp hover expansion, timeline rail, drag selection/copy, image previews,
+- Timestamp hover expansion, scrollback text selection/copy, image previews,
   link-click actions and editable cursor positioning have not been ported.
 - Terminal profile auto-detection is bounded to environment information; the
   full upstream capability-probing/settings runtime is not included.
-- Input confirmation remains dot-specific to prevent unintended real tasks.
+- Enter routing reuses PromptWidget; dot retains room binding, persistent send journaling and uncertainty locks.
 - OS terminal font, font size, line height and display scaling belong to the host
   terminal and cannot be matched merely by changing Rust layout code.
 
@@ -62,3 +62,20 @@ rendering, wheel bounds, click and drag. Follow mode dims the thumb; mouse-up,
 keyboard/modal ownership, paste and viewport changes cancel stale captures.
 This is the vertical scroll indicator; the separate turn timeline/bookmark rail
 and other unported selection/tool UI remain outside this change.
+
+## Original textarea and prompt focus alignment
+
+The custom editor is removed. Original xai-ratatui-textarea sources, input event
+classification, native StatefulWidgetRef rendering and cursor position calculation
+are now used. PromptStyle::default is focused, hides its placeholder, uses no
+accent column, left/right padding 2/1, prefix width 2 and top padding 1. The old
+extra left column is removed. GrokNight active border is (80,80,88), prompt text
+(225,225,225), prefix/cursor accent (200,200,200), prompt background (20,20,20).
+CursorState is reused for blink-preserving presentation; terminal profile controls
+shape/font/physical cell width. OSC cursor color is restored on exit.
+
+The two supplied cropped reference images were downloaded and viewed. Same-grid
+100x30 and 120x40 buffer comparisons use the original textarea as the reference.
+Terminal window access remains prohibited, so there is no new same-screen/font
+image capture or assertion of full visual identity. The separate Grok agent UI
+and network runtime have not been imported.

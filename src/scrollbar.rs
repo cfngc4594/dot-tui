@@ -42,7 +42,7 @@ use ratatui_core::layout::Rect as CoreRect;
 use ratatui_core::widgets::Widget as _;
 use tui_scrollbar::ScrollBar;
 use tui_scrollbar::ScrollLengths;
-use tui_scrollbar::{ScrollMetrics, SUBCELL};
+use tui_scrollbar::{SUBCELL, ScrollMetrics};
 
 /// When set, every scrollbar renders as a no-op.
 /// The pager toggles this on in minimal (scrollback-native) mode, where lists/dropdowns show no scrollbar at all.
@@ -95,7 +95,7 @@ pub fn split_area_for_scrollbar(area: Rect) -> (Rect, Option<Rect>) {
 /// Unlike [`split_area_for_scrollbar`], this gives full width to content when scrollbar won't be shown (`total_lines <= viewport_lines`).
 ///
 /// Use this when you know the content height before splitting.
-pub fn maybe_split_for_scrollbar(area: Rect, total_lines: u16) -> (Rect, Option<Rect>) {
+pub fn maybe_split_for_scrollbar(area: Rect, total_lines: usize) -> (Rect, Option<Rect>) {
     if needs_scrollbar(total_lines, area.height) {
         split_area_for_scrollbar(area)
     } else {
@@ -104,8 +104,8 @@ pub fn maybe_split_for_scrollbar(area: Rect, total_lines: u16) -> (Rect, Option<
 }
 
 /// Whether the scrollbar should be shown (content overflows viewport).
-pub fn needs_scrollbar(total_lines: u16, viewport_lines: u16) -> bool {
-    total_lines > viewport_lines
+pub fn needs_scrollbar(total_lines: usize, viewport_lines: u16) -> bool {
+    total_lines > viewport_lines as usize
 }
 
 /// Track plus one column of slop: a thumb flush against a border is read as a two-column widget, so near-miss presses must still grab.
@@ -135,7 +135,7 @@ pub enum ScrollbarClickResult {
 pub fn scrollbar_click_to_offset(
     cell_index: u16,
     track_cells: u16,
-    total_lines: u16,
+    total_lines: usize,
     viewport_lines: u16,
 ) -> ScrollbarClickResult {
     if track_cells == 0 {
@@ -170,9 +170,9 @@ pub fn scrollbar_click_to_offset(
 pub fn render_scrollbar(
     buf: &mut Buffer,
     scrollbar_area: Option<Rect>,
-    total_lines: u16,
+    total_lines: usize,
     viewport_lines: u16,
-    offset: u16,
+    offset: usize,
     is_following: bool,
 ) {
     let (track_style, thumb_style) = scrollbar_styles(is_following);
@@ -214,9 +214,9 @@ fn scrollbar_styles(is_following: bool) -> (Style, Style) {
 pub fn render_scrollbar_styled(
     buf: &mut Buffer,
     scrollbar_area: Option<Rect>,
-    total_lines: u16,
+    total_lines: usize,
     viewport_lines: u16,
-    offset: u16,
+    offset: usize,
     track_style: Style,
     thumb_style: Style,
 ) {

@@ -53,8 +53,10 @@ fn editing_is_grapheme_aware_and_never_modifies_history_or_sends() {
 fn click_drag_release_resize_and_wheel_share_live_scroll_state() {
     let mut app = App::demo();
     app.messages[0].text = "long row\n".repeat(200);
+    app.expanded_messages.insert("1".into(), true); // Scroll fixture must exceed viewport, independently of prompt collapse.
     let (tx, _) = mpsc::channel();
     let area = Rect::new(0, 0, 100, 30);
+    ui::settle(&app, area);
     let geometry = ui::timeline(&app, area);
     let track = geometry.track.unwrap();
     mouse(
@@ -139,11 +141,13 @@ fn click_drag_release_resize_and_wheel_share_live_scroll_state() {
 fn modal_and_narrow_screen_never_grab_hidden_scrollbar_or_dispatch_jobs() {
     let mut app = App::demo();
     app.messages[0].text = "row\n".repeat(200);
+    app.expanded_messages.insert("1".into(), true); // Scroll fixture must exceed viewport, independently of prompt collapse.
     let (tx, rx) = mpsc::channel();
     let area = Rect::new(0, 0, 100, 30);
+    ui::settle(&app, area);
     let track = ui::timeline(&app, area).track.unwrap();
     app.append("review");
-    app.review_send();
+    app.quit_review = true;
     mouse(
         &mut app,
         pointer(MouseEventKind::Down(MouseButton::Left), track.x, track.y),
@@ -152,7 +156,7 @@ fn modal_and_narrow_screen_never_grab_hidden_scrollbar_or_dispatch_jobs() {
     );
     assert!(app.scrollbar_drag.is_none());
     assert!(rx.try_recv().is_err());
-    app.review = None;
+    app.quit_review = false;
     app.ui_visible = false;
     mouse(
         &mut app,
@@ -168,8 +172,10 @@ fn modal_and_narrow_screen_never_grab_hidden_scrollbar_or_dispatch_jobs() {
 fn scrollbar_click_inverse_places_the_rendered_thumb_on_the_clicked_row() {
     let mut app = App::demo();
     app.messages[0].text = "row\n".repeat(400);
+    app.expanded_messages.insert("1".into(), true); // Scroll fixture must exceed viewport, independently of prompt collapse.
     let (tx, _) = mpsc::channel();
     let area = Rect::new(0, 0, 60, 22);
+    ui::settle(&app, area);
     let track = ui::timeline(&app, area).track.unwrap();
     let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(60, 22)).unwrap();
     for y in track.y..track.bottom() {
@@ -213,6 +219,7 @@ fn document_home_end_and_hidden_wheel_preserve_expected_state() {
     );
     assert_eq!(app.draft_cursor(), app.draft().len());
     app.messages[0].text = "row\n".repeat(100);
+    app.expanded_messages.insert("1".into(), true); // Scroll fixture must exceed viewport, independently of prompt collapse.
     app.scroll = 8;
     app.follow_latest = false;
     app.ui_visible = false;
