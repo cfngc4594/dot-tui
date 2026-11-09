@@ -30,7 +30,7 @@ require_user_directory() {
 main() {
     set -eu
     umask 077
-    DEFAULT_VERSION=0.8.4
+    DEFAULT_VERSION=0.8.5
     [ "$#" -le 1 ] || fail 'Usage: sh install.sh [0.8.4]'
     VERSION=${1:-$DEFAULT_VERSION}
     # Exactly three numeric components; never interpolate paths/URLs from shell code.
