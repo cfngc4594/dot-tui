@@ -57,10 +57,11 @@ fn relative(path: &Path, base: &Path) -> Result<String> {
     let path = path
         .strip_prefix(base)
         .context("License path outside package")?;
-    Ok(path
-        .to_str()
-        .context("License path is not UTF-8")?
-        .to_owned())
+    // Publication metadata is portable, independent of host path separators.
+    path.iter()
+        .map(|part| part.to_str().context("License path is not UTF-8"))
+        .collect::<Result<Vec<_>>>()
+        .map(|parts| parts.join("/"))
 }
 
 pub fn collect(metadata: &Value, root: &Path) -> Result<(String, Value)> {
@@ -268,6 +269,12 @@ pub fn collect(metadata: &Value, root: &Path) -> Result<(String, Value)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn published_relative_paths_use_forward_slashes() {
+        let base = PathBuf::from("package");
+        let nested = base.join("licenses").join("assets").join("NOTICE");
+        assert_eq!(relative(&nested, &base).unwrap(), "licenses/assets/NOTICE");
+    }
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
