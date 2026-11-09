@@ -450,3 +450,12 @@ or either zero dimension before reserving pixel rows. This preserves the
 image decoding/error fixes without assuming that a large valid inline image
 area is erroneous. Remote file IDs and download metadata remain Dot backend
 adaptations, not Grok ACP tool events.
+
+## Inline placement compatibility (0.8.4)
+
+Dot now explicitly removes an existing Kitty placement before changing its
+position or crop, retaining uploaded image bytes. Stationary placements are
+not repeatedly issued. This defensive compatibility adaptation preserves the
+public Grok media helpers and does not change automatic display preferences.
+Multipart image transfers still complete before other graphics commands.
+Protocol regression tests do not constitute visual validation on every terminal.

@@ -30,7 +30,7 @@ struct State {
     next: u32,
     viewport: Rect,
     retired: Vec<u32>,
-    shape: Vec<(String, Rect, u16)>,
+    shape: Vec<(String, Rect, u16, u16)>,
     upload: Option<Upload>,
 }
 thread_local! {static STATE:RefCell<State>=RefCell::new(State::default());}
@@ -139,6 +139,7 @@ pub fn paint_with_pending(
                     format!("{room}/{}/{}", p.file, p.instance),
                     p.area,
                     p.top_crop,
+                    p.full_rows,
                 )
             })
             .collect();
@@ -149,7 +150,7 @@ pub fn paint_with_pending(
             enabled
                 && image::scrollback_inline_overlay_active()
                 && u.media_key.starts_with(&format!("{room}/"))
-                && (layout_pending || shape.iter().any(|(key, _, _)| key == &u.key))
+                && (layout_pending || shape.iter().any(|(key, _, _, _)| key == &u.key))
         });
         if s.upload.is_some() && !keep_upload {
             cancel(&mut s, &mut out);
@@ -159,7 +160,6 @@ pub fn paint_with_pending(
             s.retired.extend(stale);
             s.viewport = viewport;
         }
-        s.shape = shape;
         // A partial upload owns the graphics stream exclusively until completed.
         let continuing = s.upload.is_some();
         if continuing {
@@ -173,6 +173,7 @@ pub fn paint_with_pending(
             out.push_str(&image::clear_kitty_image(id));
         }
         if layout_pending && enabled {
+            s.shape.clear();
             for id in s.ids.values() {
                 out.push_str(&image::clear_kitty_image(*id));
             }
@@ -196,8 +197,29 @@ pub fn paint_with_pending(
                 out.push_str(&image::clear_kitty_image(id));
             }
         }
-        // Correct existing placements before starting a new multi-frame transfer.
-        place(&s, store, room, placements, &mut out);
+        // Defensive terminal compatibility: explicitly remove moved/cropped
+        // placements before replacing them. Lowercase d=i keeps cached pixels.
+        // Do this only after a partial upload has finished its final chunk.
+        let changed = s.shape != shape;
+        if changed {
+            for (key, area, crop, rows) in &shape {
+                if s.shape
+                    .iter()
+                    .any(|(old_key, old_area, old_crop, old_rows)| {
+                        old_key == key && (old_area != area || old_crop != crop || old_rows != rows)
+                    })
+                    && let Some(id) = s.ids.get(key)
+                {
+                    out.push_str(&image::clear_kitty_image(*id));
+                }
+            }
+        }
+        // Stationary frames need no repeated placement commands. Completion or
+        // an explicit clear still forces replay even if geometry is unchanged.
+        if changed || continuing {
+            place(&s, store, room, placements, &mut out);
+        }
+        s.shape = shape;
         if !continuing {
             for p in placements.iter().take(crate::native_media::MAX_ENTRIES) {
                 let media_key = format!("{room}/{}", p.file);
@@ -221,6 +243,7 @@ pub fn paint_with_pending(
                     for id in s.ids.values() {
                         out.push_str(&image::clear_kitty_image(*id));
                     }
+                    s.shape.clear();
                 }
                 s.next = s.next.wrapping_add(1).max(2);
                 let id = s.next;
@@ -335,6 +358,38 @@ mod tests {
         ));
         assert_eq!(output.matches("a=t").count(), 2);
         assert!(output.matches("a=p").count() >= 2);
+        clear();
+    }
+    #[test]
+    fn moving_and_cropping_two_instances_clears_only_changed_placements_before_replay() {
+        let (store, _guard) = setup();
+        let v = Rect::new(0, 0, 80, 30);
+        let mut p = placement();
+        let mut q = p.clone();
+        q.instance = "other:1".into();
+        q.area.y = 15;
+        let frame =
+            |p: &Placement, q: &Placement| paint(&store, "room", &[p.clone(), q.clone()], v, true);
+        frame(&p, &q);
+        frame(&p, &q);
+        let still = frame(&p, &q);
+        assert!(!still.contains("a=d") && !still.contains("a=p") && !still.contains("a=t"));
+        p.area.y += 1;
+        p.top_crop = 2;
+        let moved = frame(&p, &q);
+        assert_eq!(moved.matches("a=d,d=i").count(), 1);
+        assert!(moved.contains("a=d,d=i,i=2,"));
+        assert!(!moved.contains("a=d,d=i,i=3,"));
+        assert!(moved.find("a=d").unwrap() < moved.find("a=p").unwrap());
+        assert!(!moved.contains("a=t"));
+        q.top_crop = 3;
+        q.area.height -= 1;
+        let cropped = frame(&p, &q);
+        assert!(cropped.contains("a=d,d=i,i=3,"));
+        assert!(!cropped.contains("a=d,d=i,i=2,"));
+        assert!(cropped.find("a=d").unwrap() < cropped.find("a=p").unwrap());
+        assert!(!cropped.contains("a=t"));
+        assert!(!frame(&p, &q).contains("a=d"));
         clear();
     }
     #[test]
@@ -498,6 +553,33 @@ mod bounded_tests {
         assert_eq!(all.matches("a=t,").count(), 1);
         assert!(all.contains("a=p,"));
         validate(&all);
+        clear();
+    }
+    #[test]
+    fn moving_during_partial_upload_never_interleaves_delete_and_replaces_after_completion() {
+        let (store, _guard, mut p) = large();
+        let v = Rect::new(0, 0, 100, 38);
+        let mut all = paint(&store, "demo-room", std::slice::from_ref(&p), v, true);
+        assert!(upload_pending());
+        for n in 0..100 {
+            p.top_crop = (n % 3) as u16;
+            p.area.y = 3 + (n % 2) as u16;
+            let out = paint(&store, "demo-room", std::slice::from_ref(&p), v, true);
+            if upload_pending() {
+                assert!(!out.contains("a=d") && !out.contains("a=p"));
+            }
+            all.push_str(&out);
+            if !upload_pending() {
+                break;
+            }
+        }
+        assert!(!upload_pending());
+        assert_eq!(all.matches("a=t,").count(), 1);
+        validate(&all);
+        p.top_crop += 1;
+        let moved = paint(&store, "demo-room", std::slice::from_ref(&p), v, true);
+        assert!(moved.find("a=d").unwrap() < moved.find("a=p").unwrap());
+        assert!(!moved.contains("a=t"));
         clear();
     }
     #[test]
