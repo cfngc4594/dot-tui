@@ -139,3 +139,5 @@ not converted by the installer. No credentials are transferred during builds.
 Linux system clipboard requires a working X11/Wayland session; without one,
 terminal bracketed text paste and `@` file selection remain available. Image
 preview protocols depend on the terminal/multiplexer, not the installation shell.
+
+Windows installs default to `%USERPROFILE%\.local\bin`. Custom destinations must remain inside the current user profile. The installer rejects reparse points, untrusted owners, and modification/delete/permission grants to principals other than the current user, SYSTEM, or Administrators; it never changes an existing ACL. Existing executable and notice files receive the same checks before replacement.
