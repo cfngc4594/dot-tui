@@ -32,6 +32,7 @@ const ROOT_FILES: &[&str] = &[
     "Cargo.toml",
     "Cargo.lock",
     ".gitignore",
+    ".gitattributes",
     "install.sh",
     "install.ps1",
     "README.md",
@@ -262,6 +263,11 @@ fn validate_output(root: &Path, output: &Path) -> Result<()> {
     }
     Ok(())
 }
+fn installer_version_matches(bytes: &[u8], version: &str) -> bool {
+    let expected = format!("DEFAULT_VERSION={version}");
+    String::from_utf8_lossy(bytes).lines().any(|line| line.trim() == expected)
+}
+
 pub fn build(
     root: &Path,
     output: Option<PathBuf>,
@@ -289,7 +295,7 @@ pub fn build(
         bail!("Release version must contain three numeric components");
     }
     let installer = fs::read(root.join("install.sh"))?;
-    if !String::from_utf8_lossy(&installer).contains(&format!("DEFAULT_VERSION={version}\n")) {
+    if !installer_version_matches(&installer, version) {
         bail!("Installer default and Cargo package version differ");
     }
     let powershell = fs::read_to_string(root.join("install.ps1"))?;
@@ -419,6 +425,12 @@ pub fn build(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn installer_version_accepts_lf_and_crlf() {
+        assert!(installer_version_matches(b"    DEFAULT_VERSION=0.8.6\n", "0.8.6"));
+        assert!(installer_version_matches(b"    DEFAULT_VERSION=0.8.6\r\n", "0.8.6"));
+        assert!(!installer_version_matches(b"DEFAULT_VERSION=0.8.5\r\n", "0.8.6"));
+    }
     #[test]
     #[cfg(unix)]
     fn output_rejects_source_subdirectories_including_symlinked_parent() {
