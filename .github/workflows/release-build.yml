@@ -45,6 +45,10 @@ jobs:
           $tokens = $null; $errors = $null
           [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$tokens, [ref]$errors)
           if ($errors.Count) { $errors | Write-Error; exit 1 }
+      - name: Test Windows installer security boundary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tools/test_windows_installer.ps1
       - name: Test app on native host
         run: cargo test --locked
       - name: Test release tooling
@@ -91,7 +95,7 @@ jobs:
             Copy-Item -LiteralPath (Join-Path $env:DOT_TUI_TEST_BUNDLE $name) -Destination $out
             $global:LASTEXITCODE = 0
           }
-          $testDir = Join-Path $env:TEMP ('dot-tui-install-test-' + [Guid]::NewGuid().ToString('N'))
+          $testDir = Join-Path $env:USERPROFILE ('dot-tui-install-test-' + [Guid]::NewGuid().ToString('N'))
           try {
             & ./install.ps1 -InstallDir $testDir
             & (Join-Path $testDir 'dot-tui.exe') --version
