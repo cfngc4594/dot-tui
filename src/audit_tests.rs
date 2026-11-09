@@ -68,7 +68,7 @@ fn focus_lost_blocks_keys_paste_copy_and_hides_caret() {
         k(KeyCode::Char('q'), KeyModifiers::CONTROL),
         &tx
     ));
-    key(&mut a, k(KeyCode::Char('c'), KeyModifiers::CONTROL), &tx);
+    key(&mut a, k(KeyCode::Char('c'), KeyModifiers::SUPER), &tx);
     dispatch_input(&mut a, Event::Paste("bad".into()), area, area, &tx);
     key(&mut a, enter(), &tx);
     assert_eq!(a.draft(), "keep");
@@ -77,7 +77,7 @@ fn focus_lost_blocks_keys_paste_copy_and_hides_caret() {
     assert!(ui::cursor_position(&a, area).is_none());
 }
 #[test]
-fn gained_focus_restores_idle_prompt_but_not_modal_busy_or_pending() {
+fn gained_focus_restores_editing_during_network_work_but_not_modal() {
     let area = Rect::new(0, 0, 100, 30);
     let (tx, rx) = mpsc::channel();
     for state in 0..4 {
@@ -93,7 +93,7 @@ fn gained_focus_restores_idle_prompt_but_not_modal_busy_or_pending() {
         };
         dispatch_input(&mut a, Event::FocusGained, area, area, &tx);
         assert!(a.window_focused && a.reassert_mouse_capture && a.focus_in_batch);
-        assert_eq!(a.prompt_focused, state == 0);
+        assert_eq!(a.prompt_focused, state != 2);
         assert!(!a.follow_latest);
         a.append("draft");
         key(&mut a, enter(), &tx);
@@ -139,12 +139,12 @@ fn page_keys_are_owned_by_pane_and_modifiers_stay_with_textarea() {
     assert!(rx.try_recv().is_err());
 }
 #[test]
-fn ctrl_c_and_cmd_c_copy_selection_without_exit_or_draft_change() {
+fn cmd_c_copies_selection_and_ctrl_c_clears_like_grok() {
     let (mut a, clip) = fixture();
     a.append("A中e\u{301}Z");
     a.draft.set_selection(1, "A中e\u{301}".len());
     let (tx, rx) = mpsc::channel();
-    for mods in [KeyModifiers::CONTROL, KeyModifiers::SUPER] {
+    for mods in [KeyModifiers::SUPER, KeyModifiers::SUPER] {
         assert!(!key(&mut a, k(KeyCode::Char('c'), mods), &tx));
     }
     assert_eq!(clip.borrow().writes, vec!["中e\u{301}", "中e\u{301}"]);
@@ -157,6 +157,8 @@ fn ctrl_c_and_cmd_c_copy_selection_without_exit_or_draft_change() {
         k(KeyCode::Char('c'), KeyModifiers::CONTROL),
         &tx
     ));
+    assert!(a.draft().is_empty());
+    a.focus_in_batch = false;
     assert!(key(
         &mut a,
         k(KeyCode::Char('q'), KeyModifiers::CONTROL),
@@ -170,7 +172,7 @@ fn shared_provider_survives_clear_and_accepted_send_and_pastes_once_safely() {
     a.append("copy 中文");
     let end = a.draft().len();
     a.draft.set_selection(0, end);
-    key(&mut a, k(KeyCode::Char('c'), KeyModifiers::CONTROL), &tx);
+    key(&mut a, k(KeyCode::Char('c'), KeyModifiers::SUPER), &tx);
     key(&mut a, k(KeyCode::Char('u'), KeyModifiers::CONTROL), &tx);
     key(&mut a, k(KeyCode::Char('v'), KeyModifiers::CONTROL), &tx);
     assert_eq!(a.draft(), "copy 中文");
@@ -198,7 +200,7 @@ fn paste_has_one_provider_read_and_uses_sanitizer_size_and_window_guards() {
     key(&mut a, k(KeyCode::Char('v'), KeyModifiers::CONTROL), &tx);
     assert_eq!(clip.borrow().reads, 1);
     assert!(!a.draft().contains('\x1b'));
-    assert_eq!(a.draft().chars().count(), 16000);
+    assert_eq!(a.draft().chars().filter(|c| *c == '中').count(), 17000);
     key(&mut a, enter(), &tx);
     assert!(rx.try_recv().is_err());
     a.window_focused = false;
@@ -209,7 +211,7 @@ fn paste_has_one_provider_read_and_uses_sanitizer_size_and_window_guards() {
     a.prompt_focused = true;
     a.uncertain = true;
     key(&mut a, k(KeyCode::Char('v'), KeyModifiers::CONTROL), &tx);
-    assert_eq!(clip.borrow().reads, 1);
+    assert_eq!(clip.borrow().reads, 3); // Grok paste focuses input; uncertain sends remain editable.
 }
 #[test]
 fn latest_poll_runs_while_reading_old_history_and_restores_anchor_after_merge() {
@@ -249,7 +251,7 @@ fn newest_poll_does_not_erase_history_or_older_boundary_on_empty_page() {
     assert!(!a.older_exhausted);
 }
 #[test]
-fn bounded_merge_keeps_old_anchor_and_new_tail_and_reports_omission() {
+fn merge_keeps_old_anchor_and_all_new_messages() {
     let mut a = App::demo();
     a.messages = history(0, 288);
     a.follow_latest = false;
@@ -260,10 +262,10 @@ fn bounded_merge_keeps_old_anchor_and_new_tail_and_reports_omission() {
     let (tx, _) = mpsc::channel();
     a.apply(Reply::Page(0, false, Ok(history(280, 32))), &tx);
     settle(&mut a, area);
-    assert_eq!(a.messages.len(), 288);
+    assert_eq!(a.messages.len(), 312);
     assert_eq!(ui::reading_anchor(&a).unwrap().id, anchor.id);
     assert!(a.messages.iter().any(|m| m.id == "000311"));
-    assert!(a.last_result.contains("省略"));
+    assert!(!a.last_result.contains("省略"));
 }
 #[test]
 fn background_updates_do_not_change_window_focus_draft_or_uncertainty() {

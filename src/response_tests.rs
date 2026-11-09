@@ -81,8 +81,8 @@ fn original_coalescer_preserves_dot_command_boundaries() {
         T::now(Event::Key(event::KeyEvent::from(KeyCode::Enter))),
         T::now(Event::Key(event::KeyEvent::from(KeyCode::Char('b')))),
     ]);
-    assert_eq!(normalized.len(), 1);
-    assert_eq!(normalized[0].event, Event::Paste("a\nb".into()));
+    assert_eq!(normalized.len(), 3);
+    assert!(matches!(normalized[1].event, Event::Key(k) if k.code == KeyCode::Enter));
 }
 
 #[test]

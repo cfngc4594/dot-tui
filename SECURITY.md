@@ -27,18 +27,17 @@ Unix descriptor checks reject non-regular files, wrong ownership, group/other
 permission bits and final symlinks. Parent symlinks/extended ACLs are not audited.
 Windows live auth is refused until ACL handling exists.
 
-Every real send creates an atomic private pending marker BEFORE queueing network
-work, with a random UUID also used for request_id/idempotency_token. The marker
-survives crashes and contains no message text, token or account identifier. Server
-acceptance clears it; HTTP/network/parse failures remain uncertain and locked.
-No automatic resend. Quitting cannot retract a submitted request. Manual recovery
-requires first checking the official app; see README. This is defensive duplicate
-prevention, not a guarantee of server-side exactly-once delivery.
+Every explicit send gets a random UUID used for request_id/idempotency_token.
+While it is in flight, duplicate submissions are rejected, but the composer
+remains editable. Completion never overwrites newer input. There is no persistent
+send lock and no automatic resend. An unknown result must be checked in the
+official app before the user explicitly chooses to send again. This is not a
+guarantee of server-side exactly-once delivery.
 
-Transport is bounded at 20 seconds / 4 MiB, text at 16,000 chars, loaded history at
-288 messages. Terminal controls and bidi controls are sanitized; remote message
-content remains untrusted and must never be executed as commands. Requests already
-sent may finish even if the process exits. Drafts exist only in memory.
+Read/message requests have a 20-second timeout and connections a 10-second
+limit; image uploads have a 120-second total timeout. Terminal and bidi controls
+are sanitized. Remote text is untrusted and is never executed. Drafts and input
+history exist only in memory and can be lost on exit.
 
 Current coverage: fake transport/state-machine tests and offline TUI verification.
 Real Rust sends still require independent validation. Native macOS 0.4 offline
@@ -58,9 +57,11 @@ to queued input. No global keyboard permission API is requested.
 
 Images are staged only on an explicit paste or local selection. No upload occurs
 until an explicit safe submission and all selected image previews have been
-flushed successfully. The existing pending marker is created before the FIRST
-upload; an upload or send with an uncertain result retains the marker and draft.
-Do not automatically retry an upload after an error, even if no message ID exists.
+flushed successfully. Version 0.8.1 keeps consumed input and image bytes in in-memory input history.
+No upload or message is automatically retried. A failed upload means the message
+POST was not attempted (an unattached upload may still exist); a failed message
+POST has an unknown result. Check the official app before explicitly resending.
+Legacy `pending-send` files are neither read nor removed by this version.
 
 macOS explicit image paste uses the original Grok file-URL/raster AppleScript
 probe with a private 0700 staging directory and 0600 file, a two-second helper
@@ -68,3 +69,19 @@ deadline and child file-size cap. Normal exit cleans owned staging directories;
 no focus/idle clipboard probe runs. Crash cleanup and OS crash dumps cannot be
 guaranteed. Tests never read the real clipboard or call real account services.
 Encoded bytes/protocol payloads are redacted from Debug output.
+
+## Send diagnostics (0.8.1)
+
+Private `~/.dot-tui-send-state/diagnostics.jsonl` records fixed stage names,
+start/done, elapsed milliseconds, generated request UUID, HTTP status and an
+allowlisted error class. It never records message text, image bytes, filenames,
+URLs, account IDs, credentials or raw server error bodies. The log stops
+appending at 4 MiB; preserve/rename it while all clients are closed to start a
+new log. No evidence is automatically deleted.
+
+Sending consumes the input into session history while editing remains available.
+Up in an empty composer recalls the previous submission and its image chips;
+Enter is a new explicit send. Unknown failures stay visible during background
+refresh. Failure or a late success never overwrites newly typed text. Input
+history is memory-only and is lost on exit, as in the existing client; this
+release does not add a persistent draft system.

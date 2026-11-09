@@ -51,6 +51,8 @@ pub struct MessagePage {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SendError {
     Rejected(String),
+    /// Upload may have occurred, but the message endpoint was never attempted.
+    NotSent(String),
     Uncertain(String),
 }
 
@@ -100,7 +102,16 @@ impl Backend {
         {
             return Err("Unexpected service destination refused.".into());
         }
+        let stage = if url.path().ends_with("/tbo") {
+            crate::diagnostics::Stage::DotList
+        } else if url.path().contains("/files/") {
+            crate::diagnostics::Stage::ReadImage
+        } else {
+            crate::diagnostics::Stage::ReadMessages
+        };
+        let mut trace = crate::diagnostics::Request::start(stage, None);
         let mut response = self.client.get(url).send().map_err(|e| {
+            trace.done(false, Some(crate::diagnostics::classify(&e)), None);
             if e.is_timeout() {
                 "Read request timed out (20s limit). No automatic retry.".to_owned()
             } else if e.is_connect() {
@@ -110,6 +121,13 @@ impl Backend {
             }
         })?;
         let status = response.status();
+        if !status.is_success() {
+            trace.done(
+                false,
+                Some(crate::diagnostics::Error::Http),
+                Some(status.as_u16()),
+            );
+        }
         if status.is_redirection() {
             return Err("Redirect refused. Check access in the official app.".into());
         }
@@ -126,34 +144,46 @@ impl Backend {
             ));
         }
         let mut bytes = Vec::new();
-        response
-            .read_to_end(&mut bytes)
-            .map_err(|_| "Cannot read service response.".to_owned())?;
-        serde_json::from_slice(&bytes).map_err(|_| "Unexpected response format.".into())
+        response.read_to_end(&mut bytes).map_err(|_| {
+            trace.done(
+                false,
+                Some(crate::diagnostics::Error::Body),
+                Some(status.as_u16()),
+            );
+            "Cannot read service response.".to_owned()
+        })?;
+        let result =
+            serde_json::from_slice(&bytes).map_err(|_| "Unexpected response format.".into());
+        trace.done(
+            result.is_ok(),
+            if result.is_err() {
+                Some(crate::diagnostics::Error::Decode)
+            } else {
+                None
+            },
+            Some(status.as_u16()),
+        );
+        result
     }
 
     /// Submit exactly once to an existing room. The returned ID acknowledges
-    /// server acceptance only, not delivery or a reply. Caller owns confirmation
-    /// and a durable pending marker created before calling this method.
+    /// server acceptance only, not delivery or a reply. Caller owns explicit
+    /// submission and retains the consumed prompt in session history.
     pub fn send(&self, dot: &Dot, text: &str, request_id: &str) -> Result<String, SendError> {
         send_with_transport(dot, text, request_id, |url, payload| {
-            let mut response = self.client.post(url).json(payload).send().map_err(|_| {
-                "Send outcome is uncertain. Check the official app before retrying.".to_owned()
+            let mut trace = crate::diagnostics::Request::start(
+                crate::diagnostics::Stage::SendMessage,
+                Some(request_id),
+            );
+            let response = self.client.post(url).json(payload).send().map_err(|e| {
+                let kind = crate::diagnostics::classify(&e);
+                trace.done(false, Some(kind), None);
+                format!(
+                    "Message submission {}. Check the official app before retrying.",
+                    kind.name()
+                )
             })?;
-            let status = response.status();
-            // Even HTTP errors are treated conservatively after an attempt.
-            if !status.is_success() {
-                return Err(format!(
-                    "Send returned HTTP {}. Check the official app before retrying.",
-                    status.as_u16()
-                ));
-            }
-            let mut bytes = Vec::new();
-            response.read_to_end(&mut bytes).map_err(|_| {
-                "Cannot read send acknowledgement. Check the official app.".to_owned()
-            })?;
-            serde_json::from_slice(&bytes)
-                .map_err(|_| "Invalid send acknowledgement. Check the official app.".into())
+            read_ack(response, &mut trace)
         })
     }
 
@@ -177,12 +207,12 @@ impl Backend {
                 .ok_or_else(|| SendError::Rejected("Image bytes unavailable".into()))?;
             let mut local = crate::image_transfer::LocalImage::stage(bytes.to_vec())
                 .map_err(|e| SendError::Rejected(e.into()))?;
-            local.record_preview(true); // App checked flushed preview identity before journaling this immutable plan.
+            local.record_preview(true); // App checked flushed preview identity before creating this immutable plan.
             staged.push(local);
         }
-        let mut wire = ImageTransport(self);
+        let mut wire = ImageTransport(self, request_id);
         crate::image_transfer::transmit(&mut wire, &room, text, &staged, request_id)
-            .map_err(|e| SendError::Uncertain(e.into()))
+            .map_err(|e| e.into_send_error())
     }
 
     pub fn view_image(
@@ -523,10 +553,10 @@ fn parse_messages(value: &Value, dot: &Dot) -> Result<Vec<Message>, String> {
 
 // Same credential-bearing fixed-origin/no-redirect client as text sends. Only
 // immutable room-scoped URLs built by image_transfer reach this transport.
-struct ImageTransport<'a>(&'a Backend);
+struct ImageTransport<'a>(&'a Backend, &'a str);
 impl crate::image_transfer::Transport for ImageTransport<'_> {
-    fn upload(&mut self, url: Url, field: &str, mime: &str, bytes: &[u8]) -> Result<Value, ()> {
-        image_origin(&url)?;
+    fn upload(&mut self, url: Url, field: &str, mime: &str, bytes: &[u8]) -> Result<Value, String> {
+        image_origin(&url).map_err(|_| "Unexpected image service destination")?;
         let part = reqwest::blocking::multipart::Part::bytes(bytes.to_vec())
             .file_name(match mime {
                 "image/png" => "image.png",
@@ -535,22 +565,42 @@ impl crate::image_transfer::Transport for ImageTransport<'_> {
                 "image/gif" => "image.gif",
                 "image/bmp" => "image.bmp",
                 "image/tiff" => "image.tiff",
-                _ => return Err(()),
+                _ => return Err("Unsupported image MIME".into()),
             })
             .mime_str(mime)
-            .map_err(|_| ())?;
-        image_ack(
-            self.0
-                .client
-                .post(url)
-                .multipart(reqwest::blocking::multipart::Form::new().part(field.to_owned(), part))
-                .send()
-                .map_err(|_| ())?,
-        )
+            .map_err(|_| "Invalid image MIME")?;
+        let mut trace = crate::diagnostics::Request::start(
+            crate::diagnostics::Stage::UploadImage,
+            Some(self.1),
+        );
+        let response = self
+            .0
+            .client
+            .post(url)
+            // Unlike a small history GET, uploading a validated image can need
+            // longer. Still bounded, and neither timeout nor HTTP errors retry.
+            .timeout(Duration::from_secs(120))
+            .multipart(reqwest::blocking::multipart::Form::new().part(field.to_owned(), part))
+            .send()
+            .map_err(|e| {
+                let kind = crate::diagnostics::classify(&e);
+                trace.done(false, Some(kind), None);
+                format!("upload {}", kind.name())
+            })?;
+        read_ack(response, &mut trace)
     }
-    fn message(&mut self, url: Url, body: &Value) -> Result<Value, ()> {
-        image_origin(&url)?;
-        image_ack(self.0.client.post(url).json(body).send().map_err(|_| ())?)
+    fn message(&mut self, url: Url, body: &Value) -> Result<Value, String> {
+        image_origin(&url).map_err(|_| "Unexpected message service destination")?;
+        let mut trace = crate::diagnostics::Request::start(
+            crate::diagnostics::Stage::SendMessage,
+            Some(self.1),
+        );
+        let response = self.0.client.post(url).json(body).send().map_err(|e| {
+            let kind = crate::diagnostics::classify(&e);
+            trace.done(false, Some(kind), None);
+            format!("message {}", kind.name())
+        })?;
+        read_ack(response, &mut trace)
     }
 }
 fn image_origin(url: &Url) -> Result<(), ()> {
@@ -568,13 +618,35 @@ fn image_origin(url: &Url) -> Result<(), ()> {
         Ok(())
     }
 }
-fn image_ack(mut response: reqwest::blocking::Response) -> Result<Value, ()> {
+fn read_ack(
+    mut response: reqwest::blocking::Response,
+    trace: &mut crate::diagnostics::Request,
+) -> Result<Value, String> {
+    use crate::diagnostics::Error;
+    let status = response.status().as_u16();
     if !response.status().is_success() {
-        return Err(());
+        trace.done(false, Some(Error::Http), Some(status));
+        return Err(format!("HTTP {status}"));
     }
     let mut bytes = Vec::new();
-    response.read_to_end(&mut bytes).map_err(|_| ())?;
-    serde_json::from_slice(&bytes).map_err(|_| ())
+    response.read_to_end(&mut bytes).map_err(|_| {
+        trace.done(false, Some(Error::Body), Some(status));
+        "Cannot read acknowledgement".to_owned()
+    })?;
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| {
+        trace.done(false, Some(Error::Decode), Some(status));
+        "Invalid acknowledgement JSON".to_owned()
+    })?;
+    if value
+        .get("id")
+        .and_then(Value::as_str)
+        .is_none_or(|id| id.is_empty() || id.chars().any(char::is_control))
+    {
+        trace.done(false, Some(Error::InvalidAck), Some(status));
+        return Err("Acknowledgement missing valid ID".into());
+    }
+    trace.done(true, None, Some(status));
+    Ok(value)
 }
 
 struct ImageViewTransport<'a>(&'a Backend);
@@ -626,12 +698,13 @@ mod tests {
             assert!(matches!(outcome, Err(SendError::Rejected(_))));
         }
         let huge = "字".repeat(16_001);
-        assert!(matches!(
-            send_with_transport(&sample_dot(), &huge, REQUEST_ID, |_, _| panic!(
-                "must not send"
-            )),
-            Err(SendError::Rejected(_))
-        ));
+        assert!(
+            send_with_transport(&sample_dot(), &huge, REQUEST_ID, |_, body| {
+                assert_eq!(body["content"]["text"], huge);
+                Ok(json!({"id":"ok"}))
+            })
+            .is_ok()
+        );
         let exact = "字".repeat(16_000);
         assert!(
             send_with_transport(&sample_dot(), &exact, REQUEST_ID, |_, _| Ok(
@@ -743,16 +816,11 @@ mod tests {
         assert!(rows[1].text.contains("附件"));
     }
     #[test]
-    fn response_pages_and_text_are_bounded() {
+    fn response_preserves_complete_pages_and_long_message_text() {
         let items: Vec<_> = (0..100).map(|i| json!({"id":i.to_string(), "created_at":"2026-01", "content":{"text":"a".repeat(17000)}})).collect();
         let rows = parse_messages(&json!({"items":items}), &sample_dot()).unwrap();
-        assert_eq!(rows.len(), 32);
-        assert!(
-            rows[0]
-                .text
-                .ends_with("[Message truncated; open the official app]")
-        );
-        assert!(rows[0].text.len() < 16100);
+        assert_eq!(rows.len(), 100);
+        assert_eq!(rows[0].text, "a".repeat(17000));
     }
     #[test]
     fn control_characters_never_reach_terminal() {

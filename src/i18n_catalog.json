@@ -224,8 +224,8 @@
     " 确认退出 "
   ],
   [
-    "A request is being sent. Exiting cannot recall it; the result may be uncertain.\n\nSending will be locked after restart. Check the official app first.",
-    "请求正在提交。退出不会撤回请求，结果可能不确定。\n\n重启后将锁定发送，请先核对官方应用。"
+    "A request is being sent. Exiting cannot recall it; the result may be uncertain.\n\nDrafts exist only in this session. Check the official app before resending.",
+    "请求正在提交。退出不会撤回请求，结果可能不确定。\n\n草稿仅保存在当前会话。请先核对官方应用，勿自动重发。"
   ],
   [
     "Cancel",

@@ -221,7 +221,7 @@ fn original_router_handles_shift_alt_backslash_and_modifier_rescue() {
     assert!(rx.try_recv().is_err());
 }
 #[test]
-fn repeat_release_and_rejected_double_press_cannot_resubmit_without_edit() {
+fn repeat_release_and_rejected_double_press_require_explicit_history_recall() {
     let (tx, rx) = mpsc::channel();
     let mut a = App::demo();
     a.append("once");
@@ -247,8 +247,13 @@ fn repeat_release_and_rejected_double_press_cannot_resubmit_without_edit() {
         key(&mut a, enter(), &tx);
     }
     assert!(rx.try_recv().is_err());
+    assert_eq!(a.draft(), "");
+    key(
+        &mut a,
+        event::KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+        &tx,
+    );
     assert_eq!(a.draft(), "once");
-    a.append(" edited");
     key(&mut a, enter(), &tx);
     assert!(matches!(rx.try_recv(), Ok(Job::Send(..))));
 }
@@ -279,9 +284,9 @@ fn paste_and_same_batch_backlog_enter_never_submit() {
     assert!(rx.try_recv().is_err());
 }
 #[test]
-fn send_guards_reject_missing_ambiguous_unbound_empty_readonly_busy_uncertain_hidden() {
+fn send_guards_reject_missing_ambiguous_unbound_empty_readonly_hidden() {
     let (tx, rx) = mpsc::channel();
-    for scenario in 0..11 {
+    for scenario in [0, 1, 2, 3, 4, 5, 6, 9, 10] {
         let mut a = App::demo();
         a.append("guard");
         match scenario {
@@ -303,7 +308,7 @@ fn send_guards_reject_missing_ambiguous_unbound_empty_readonly_busy_uncertain_hi
     let mut a = App::new();
     a.append("waiting");
     key(&mut a, enter(), &tx);
-    assert_eq!(a.draft(), "waiting\n");
+    assert_eq!(a.draft(), "waiting");
     assert!(rx.try_recv().is_err());
 }
 #[test]
@@ -331,33 +336,25 @@ fn resize_mismatch_and_narrow_screen_block_enter() {
     assert!(rx.try_recv().is_err());
 }
 #[test]
-fn unknown_result_journal_survives_restart_and_refresh_cannot_unlock() {
-    let dir = std::env::temp_dir().join(format!("dot-enter-{}", uuid::Uuid::new_v4()));
+fn unknown_result_retains_history_but_not_a_permanent_input_lock() {
     let (tx, rx) = mpsc::channel();
     let mut a = App::demo();
-    a.journal = Some(Journal::new(dir.clone()).unwrap());
     a.append("keep");
     key(&mut a, enter(), &tx);
     let Job::Send(g, p) = rx.try_recv().unwrap() else {
         panic!()
     };
-    assert!(a.journal.as_ref().unwrap().blocked());
     a.apply(
         Reply::Sent(g, p.key, Err(SendError::Uncertain("unknown".into()))),
         &tx,
     );
-    assert_eq!(a.draft(), "keep");
+    assert_eq!(a.draft(), "");
+    assert!(!a.submitted_history.is_empty());
     a.apply(Reply::Page(g, false, Ok(history(100, 32))), &tx);
-    assert!(a.uncertain && a.journal.as_ref().unwrap().blocked());
-    let mut restarted = App::demo();
-    let j = Journal::new(dir.clone()).unwrap();
-    restarted.uncertain = j.blocked();
-    restarted.journal = Some(j);
-    restarted.append("cannot");
-    key(&mut restarted, enter(), &tx);
-    assert!(rx.try_recv().is_err());
-    assert!(restarted.uncertain);
-    std::fs::remove_dir_all(dir).unwrap();
+    assert!(a.uncertain);
+    a.append("new explicit message");
+    key(&mut a, enter(), &tx);
+    assert!(matches!(rx.try_recv(), Ok(Job::Send(..))));
 }
 #[test]
 fn latest_page_opens_at_bottom_and_refresh_does_not_steal_reading_position() {
@@ -435,22 +432,22 @@ fn non_top_wheel_does_not_page_and_failed_page_needs_explicit_retry() {
     assert!(rx.try_recv().is_ok());
 }
 #[test]
-fn empty_repeated_pages_and_history_limit_are_distinct() {
+fn legacy_pages_do_not_claim_cursor_exhaustion_or_truncate_history() {
     let (tx, _rx) = mpsc::channel();
     for page in [Vec::new(), history(100, 32)] {
         let mut a = page_app();
         let area = Rect::new(0, 0, 100, 30);
         ui::settle(&a, area);
         a.apply(Reply::Page(0, true, Ok(page)), &tx);
-        assert!(a.older_exhausted);
+        assert!(!a.older_exhausted);
         assert_eq!(a.messages.len(), 32);
-        assert!(a.status.contains("没有更多"));
+        assert!(a.status.contains("当前分页"));
     }
     let mut a = page_app();
     a.messages = history(100, 280);
     a.apply(Reply::Page(0, true, Ok(history(68, 32))), &tx);
-    assert_eq!(a.messages.len(), 288);
-    assert!(a.status.contains("上限") && a.status.contains("不代表"));
+    assert_eq!(a.messages.len(), 312);
+    assert!(!a.older_exhausted);
 }
 #[test]
 fn anchor_survives_reflow_and_duplicate_message_ids_remain_unique() {
@@ -519,7 +516,10 @@ fn click_focus_and_space_consume_transition_and_unfocused_enter_never_sends() {
         .iter()
         .map(|c| c.symbol())
         .collect();
-    assert!(text.replace(' ', "").contains("Space:输入"));
+    assert!(
+        text.replace(' ', "")
+            .contains(&i18n::label("Space:prompt", "Space:输入").replace(' ', ""))
+    );
     key(
         &mut a,
         event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
@@ -590,7 +590,8 @@ fn unfocused_empty_placeholder_and_cursor_follow_original_focus_rule() {
         .iter()
         .map(|c| c.symbol())
         .collect();
-    assert!(text.replace(' ', "").contains("给dot发消息"));
+    assert!(a.draft().is_empty());
+    assert!(!text.contains("给 dot 发消息"));
     assert!(ui::cursor_position(&a, area).is_none());
     let prompt = ui::prompt_hit_area(&a, area);
     click(&mut a, area, &tx, prompt.x + 4, prompt.y + 1);
@@ -602,7 +603,8 @@ fn unfocused_empty_placeholder_and_cursor_follow_original_focus_rule() {
         .iter()
         .map(|c| c.symbol())
         .collect();
-    assert!(!text.replace(' ', "").contains("给dot发消息"));
+    assert!(a.draft().is_empty());
+    assert!(!text.contains("给 dot 发消息"));
     assert!(ui::cursor_position(&a, area).is_some());
 }
 fn fold_app() -> App {

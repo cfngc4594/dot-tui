@@ -34,7 +34,10 @@ pub fn compute(area: Rect, text_height: u16) -> AgentLayout {
     let inner_area = Block::default()
         .padding(Padding::new(2, 2, 1, 1))
         .inner(area);
-    let prompt_height = desired_height(text_height, area.height.saturating_sub(10).clamp(3, 8));
+    // Original app/agent_view/render.rs:804: the composer may occupy half
+    // the terminal, rather than Dot's former fixed eight-row ceiling.
+    let max_prompt_height = area.height / 2;
+    let prompt_height = desired_height(text_height, max_prompt_height);
     let chunks = Layout::vertical([
         Constraint::Length(1), // StatusBar
         Constraint::Length(1), // status_gap

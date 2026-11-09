@@ -522,15 +522,15 @@ mod tests {
         assert_eq!(c.images[0].display_number, 2);
     }
     #[test]
-    fn cap_rejection_does_not_change_text_or_image_records() {
+    fn original_composer_does_not_have_legacy_ten_image_cap() {
         let mut c = ImageComposer::default();
         for _ in 0..10 {
             c.insert_image(image()).unwrap();
         }
         let before = c.textarea.text().to_owned();
-        assert!(c.insert_image(image()).is_err());
-        assert_eq!(c.textarea.text(), before);
-        assert_eq!(c.images.len(), 10);
+        c.insert_image(image()).unwrap();
+        assert!(c.textarea.text().starts_with(&before));
+        assert_eq!(c.images.len(), 11);
     }
     #[test]
     fn actual_synthetic_image_renders_original_metadata_overlay() {

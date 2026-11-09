@@ -71,7 +71,7 @@ fn actual_app_image_only_preview_then_one_fake_upload_and_message() {
     assert!(a.draft().is_empty());
 }
 #[test]
-fn image_busy_readonly_unbound_narrow_and_legacy_enter_never_upload() {
+fn image_guards_block_until_visible_and_explicit_bare_enter() {
     let (mut a, _, tx, rx) = staged();
     paint(&a, 100, 30, true);
     a.image_loading = 1;
@@ -86,14 +86,16 @@ fn image_busy_readonly_unbound_narrow_and_legacy_enter_never_upload() {
     a.ui_visible = false;
     paint(&a, 20, 8, true);
     key(&mut a, enter(), &tx);
+    assert!(rx.try_recv().is_err());
+    assert_eq!(a.draft.images.len(), 1);
     a.ui_visible = true;
     key(
         &mut a,
         event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
         &tx,
     );
-    assert!(rx.try_recv().is_err());
-    assert_eq!(a.draft.images.len(), 1);
+    assert!(matches!(rx.try_recv(), Ok(Job::Send(..))));
+    assert!(a.draft.images.is_empty());
 }
 #[test]
 fn stale_local_read_after_clear_cannot_reappear() {
@@ -110,31 +112,48 @@ fn stale_local_read_after_clear_cannot_reappear() {
     assert_eq!(a.image_loading, 0);
 }
 #[test]
-fn uncertain_image_upload_keeps_draft_and_real_journal_marker_across_restart() {
+fn failed_image_upload_retains_history_and_never_posts_message() {
     let (mut a, mut source, tx, rx) = staged();
     paint(&a, 100, 30, true);
-    let dir = std::env::temp_dir().join(format!("dot-app-image-journal-{}", uuid::Uuid::new_v4()));
-    a.journal = Some(Journal::new(dir.clone()).unwrap());
-    a.live = true;
     let Source::Demo(b) = &mut source else {
         unreachable!()
     };
     b.fail_uncertain = true;
     key(&mut a, enter(), &tx);
     let job = rx.recv().unwrap();
-    assert!(a.journal.as_ref().unwrap().blocked());
+    let original_bytes = a.submitted_history.last().unwrap().images[0]
+        .encoded_bytes
+        .clone();
+    assert!(a.draft.images.is_empty());
     a.apply(source.perform(job), &tx);
-    assert!(a.uncertain);
-    assert_eq!(a.draft.images.len(), 1);
+    assert!(!a.uncertain);
+    assert!(
+        a.send_error
+            .as_ref()
+            .unwrap()
+            .contains("Message not submitted")
+    );
     key(&mut a, enter(), &tx);
     assert!(rx.try_recv().is_err());
-    assert!(Journal::new(dir.clone()).unwrap().blocked());
+    key(
+        &mut a,
+        event::KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+        &tx,
+    );
+    assert_eq!(a.draft.images.len(), 1);
+    assert_eq!(a.draft.images[0].encoded_bytes, original_bytes);
+    key(
+        &mut a,
+        event::KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+        &tx,
+    );
+    assert_eq!(a.draft.images.len(), 1);
+    assert!(rx.try_recv().is_err());
     let Source::Demo(b) = source else {
         unreachable!()
     };
     assert_eq!(b.image_uploads, 1);
     assert_eq!(b.sends, 0);
-    std::fs::remove_dir_all(dir).unwrap();
 }
 #[test]
 fn explicit_local_path_paste_uses_same_worker_and_preserves_file() {
@@ -423,8 +442,13 @@ fn failed_automatic_image_has_compact_error_and_no_request_storm_until_explicit_
     };
     let (lines, _, rows) = upstream_media::history_lines("fake-file-1", Some(&info), 80, true);
     assert!(rows.is_none());
-    assert_eq!(lines.len(), 5);
-    assert!(lines[1].to_string().contains("unavailable"));
+    assert_eq!(lines.len(), 2);
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.to_string().contains("unavailable"))
+    );
+    assert!(lines[1].to_string().contains("Open"));
     app.open_received_image("fake-file-1".into(), &tx);
     let mut source = Source::Demo(FakeBackend::new());
     let reply = source.perform(rx.recv().unwrap());

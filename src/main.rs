@@ -8,6 +8,7 @@ mod clipboard_bridge;
 mod clipboard_native;
 #[allow(dead_code)]
 mod clipboard_paste;
+mod diagnostics;
 mod dropdown_chrome;
 #[cfg(test)]
 mod enter_history_tests;
@@ -15,6 +16,8 @@ mod file_picker;
 mod grok_markdown;
 #[allow(clippy::collapsible_if)] // Preserve the extracted upstream scroll module unchanged.
 mod grok_scroll;
+#[cfg(test)]
+mod grok_ui_parity_tests;
 mod i18n;
 #[cfg(test)]
 mod image_app_tests;
@@ -29,7 +32,6 @@ mod image_ingress;
 #[allow(dead_code)]
 mod image_transfer;
 mod inline_history;
-mod journal;
 mod keyboard_protocol;
 #[cfg(test)]
 mod keyboard_safety_tests;
@@ -70,7 +72,6 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use journal::Journal;
 use ratatui::prelude::*;
 use sanitize::strip_control_chars as clean;
 use std::{
@@ -216,13 +217,13 @@ struct App {
     prompt_mouse_down: bool,
     focus_in_batch: bool,
     bound_target: Option<(String, String)>,
-    submit_requires_edit: bool,
     paste_in_batch: bool,
     last_paste: Option<Instant>,
     pending: Option<SendPlan>,
     uncertain: bool,
+    send_error: Option<String>,
+    submitted_history: Vec<image_composer::ImageComposer>,
     quit_review: bool,
-    journal: Option<Journal>,
     follow_latest: bool,
     bottom_hit: std::cell::Cell<Option<Rect>>,
     bottom_hover: std::cell::Cell<bool>,
@@ -302,13 +303,13 @@ impl App {
             prompt_mouse_down: false,
             focus_in_batch: false,
             bound_target: None,
-            submit_requires_edit: false,
             paste_in_batch: false,
             last_paste: None,
             pending: None,
             uncertain: false,
+            send_error: None,
+            submitted_history: Vec::new(),
             quit_review: false,
-            journal: None,
             follow_latest: true,
             bottom_hit: Default::default(),
             bottom_hover: Default::default(),
@@ -342,6 +343,17 @@ impl App {
         self.status = phase.into();
     }
     fn status_line(&self) -> String {
+        if self.uncertain {
+            return format!(
+                "{} · Check the official app before resending. Up from an empty input recalls the previous submission.",
+                self.send_error
+                    .as_deref()
+                    .unwrap_or("Previous send not confirmed")
+            );
+        }
+        if let Some(error) = &self.send_error {
+            return error.clone();
+        }
         match &self.operation {
             Some((phase, started)) => format!("{phase} · {}秒", started.elapsed().as_secs()),
             None => self.status.clone(),
@@ -353,7 +365,7 @@ impl App {
         if observed.0 != self.status {
             *observed = (self.status.clone(), now);
         }
-        if self.worker_failed || self.uncertain {
+        if self.worker_failed || self.uncertain || self.send_error.is_some() {
             return Some(self.status_line());
         }
         if self.pending.is_none() {
@@ -484,6 +496,13 @@ impl App {
     fn draft_cursor(&self) -> usize {
         self.draft.cursor()
     }
+    fn restore_submitted(&mut self) {
+        if let Some(draft) = self.submitted_history.pop() {
+            self.draft = draft;
+            self.draft_epoch = self.draft_epoch.wrapping_add(1);
+            self.previewed_images.borrow_mut().clear();
+        }
+    }
     fn reset_draft(&mut self) {
         self.draft_epoch = self.draft_epoch.wrapping_add(1);
         self.previewed_images.borrow_mut().clear();
@@ -499,7 +518,7 @@ impl App {
         if self.prompt_focused || self.quit_review {
             return false;
         }
-        !self.busy && self.pending.is_none() && !self.uncertain && !self.worker_failed
+        !self.worker_failed
     }
     fn goto_bottom(&mut self) {
         self.fold_anchor = None;
@@ -518,8 +537,6 @@ impl App {
         self.window_focused
             && self.prompt_focused
             && self.enable_send
-            && self.pending.is_none()
-            && !self.uncertain
             && !self.quit_review
             && self.received_image.is_none()
             && !self.image_view_loading
@@ -671,8 +688,6 @@ impl App {
         if self.window_focused
             && self.ui_visible
             && self.enable_send
-            && self.pending.is_none()
-            && !self.uncertain
             && !self.quit_review
             && self.received_image.is_none()
             && !self.image_view_loading
@@ -694,7 +709,6 @@ impl App {
         let text = clean(text, true);
         if !text.is_empty() {
             self.last_send_accepted = false;
-            self.submit_requires_edit = false;
             self.draft.begin_interaction();
             self.draft.insert_str_replacing_selection(&text);
             self.draft.sync_images_with_textarea();
@@ -719,7 +733,6 @@ impl App {
         self.draft.sync_images_with_textarea();
         if self.draft.text() != old {
             self.last_send_accepted = false;
-            self.submit_requires_edit = false;
         }
     }
     #[cfg(test)]
@@ -735,16 +748,12 @@ impl App {
             || !self.ui_visible
             || !self.enable_send
             || self.worker_failed
-            || self.busy
             || self.image_loading > 0
             || self.image_view_loading
             || self.received_image.is_some()
-            || self.uncertain
             || self.pending.is_some()
             || self.quit_review
-            || (self.live && self.journal.is_none())
             || !self.prompt_focused
-            || self.submit_requires_edit
         {
             return;
         }
@@ -779,28 +788,21 @@ impl App {
             key: uuid::Uuid::new_v4().to_string(),
             images,
         };
-        self.submit_requires_edit = true;
-        if let Some(j) = &self.journal
-            && let Err(e) = j.begin(&plan.key)
-        {
-            self.uncertain = true;
-            self.status = e;
-            return;
-        }
         self.pending = Some(plan.clone());
         self.begin("提交消息");
         if tx.send(Job::Send(self.generation, plan.clone())).is_err() {
             self.busy = false;
             self.operation = None;
             self.pending = None;
-            let cleared = self
-                .journal
-                .as_ref()
-                .map(|j| j.complete(&plan.key).is_ok())
-                .unwrap_or(true);
-            self.uncertain = !cleared;
+            self.uncertain = false;
             self.status = "后台不可用，消息未发出。".into();
         } else {
+            // Grok dispatch/prompt: stash image/chip state before clearing the
+            // consumed prompt. The history retains the original image bytes; no queued message is replayed.
+            self.submitted_history.push(std::mem::take(&mut self.draft));
+            self.reset_draft();
+            self.send_error = None;
+            self.uncertain = false;
             self.status = "正在提交；退出或超时不能撤回请求，请勿重复发送。".into();
         }
     }
@@ -1049,9 +1051,7 @@ impl App {
                         }
                         for image in staged.images {
                             match self.draft.insert_image(image) {
-                                Ok(()) => {
-                                    self.submit_requires_edit = false;
-                                }
+                                Ok(()) => {}
                                 Err(e) => {
                                     self.paste_feedback = Some((e, Instant::now()));
                                 }
@@ -1227,28 +1227,22 @@ impl App {
                     Ok(_message_id) => {
                         self.last_send_accepted = true;
                         self.last_result = "服务已接受消息（不代表 dot 已完成）".into();
-                        let clear = self
-                            .journal
-                            .as_ref()
-                            .map(|j| j.complete(&key))
-                            .unwrap_or(Ok(()));
-                        self.uncertain = clear.is_err();
-                        self.reset_draft();
-                        self.status = clear.err().unwrap_or_else(|| {
-                            "服务已接受消息（不代表 dot 已回复）。正在读取最新消息…".into()
-                        });
+                        self.uncertain = false;
+                        self.send_error = None;
+                        self.status =
+                            "服务已接受消息（不代表 dot 已回复）。正在读取最新消息…".into();
                         self.follow_latest = true;
                         request(self, tx, false);
                     }
-                    Err(SendError::Rejected(e)) => {
-                        self.uncertain = self
-                            .journal
-                            .as_ref()
-                            .map(|j| j.complete(&key).is_err())
-                            .unwrap_or(false);
-                        self.status = format!("{e}；未自动重试，编辑后 Enter 可重新提交。");
+                    Err(SendError::Rejected(e) | SendError::NotSent(e)) => {
+                        self.uncertain = false;
+                        self.status = format!(
+                            "{e} No automatic retry. Up from an empty input recalls the previous submission."
+                        );
+                        self.send_error = Some(self.status.clone());
                     }
                     Err(SendError::Uncertain(e)) => {
+                        self.send_error = Some(e.clone());
                         self.uncertain = true;
                         self.status = e;
                         self.last_result = self.status.clone();
@@ -1348,12 +1342,14 @@ impl FakeBackend {
             &images,
             &plan.key,
         )
-        .map_err(|e| SendError::Uncertain(e.into()))
+        .map_err(|e| e.into_send_error())
     }
     fn send(&mut self, text: &str) -> Result<String, SendError> {
         self.sends += 1;
         if self.fail_uncertain {
-            return Err(SendError::Uncertain("模拟结果不确定；已锁定发送。".into()));
+            return Err(SendError::Uncertain(
+                "模拟结果不确定；请核对后再自行决定是否发送。".into(),
+            ));
         }
         let n = self.messages.len() + 1;
         let id = n.to_string();
@@ -1384,18 +1380,18 @@ impl image_transfer::Transport for DemoImageTransport<'_> {
         field: &str,
         mime: &str,
         bytes: &[u8],
-    ) -> Result<serde_json::Value, ()> {
+    ) -> Result<serde_json::Value, String> {
         if url.host_str() != Some("chatgpt.com")
             || !url.path().ends_with("/files")
             || field != "file"
             || mime != attachments::mime_from_bytes(bytes)
         {
-            return Err(());
+            return Err("synthetic transport failure".into());
         }
-        attachments::decode_bounded(bytes).map_err(|_| ())?;
+        attachments::decode_bounded(bytes).map_err(|_| "synthetic transport failure".to_owned())?;
         self.0.image_uploads += 1;
         if self.0.fail_uncertain {
-            return Err(());
+            return Err("synthetic transport failure".into());
         }
         Ok(serde_json::json!({"id":format!("fake-file-{}",self.0.image_uploads)}))
     }
@@ -1403,24 +1399,29 @@ impl image_transfer::Transport for DemoImageTransport<'_> {
         &mut self,
         url: reqwest::Url,
         body: &serde_json::Value,
-    ) -> Result<serde_json::Value, ()> {
+    ) -> Result<serde_json::Value, String> {
         if !url.path().ends_with("/messages") || body["request_id"] != body["idempotency_token"] {
-            return Err(());
+            return Err("synthetic transport failure".into());
         }
-        let files = body["content"]["attachments"].as_array().ok_or(())?;
+        let files = body["content"]["attachments"]
+            .as_array()
+            .ok_or("synthetic missing files")?;
         if files.is_empty()
             || files
                 .iter()
                 .any(|v| v["type"] != "file" || v["file_id"].as_str().is_none())
         {
-            return Err(());
+            return Err("synthetic transport failure".into());
         }
         let text = format!(
             "{}\n[离线图片附件 × {}]",
             body["content"]["text"].as_str().unwrap_or(""),
             files.len()
         );
-        let id = self.0.send(&text).map_err(|_| ())?;
+        let id = self
+            .0
+            .send(&text)
+            .map_err(|_| "synthetic transport failure".to_owned())?;
         if let Some(m) = self.0.messages.iter_mut().find(|m| m.id == id) {
             m.files = files
                 .iter()
@@ -2061,6 +2062,21 @@ fn mouse(app: &mut App, m: MouseEvent, area: Rect, tx: &mpsc::Sender<Job>) -> bo
             if app.quit_review {
                 return false;
             }
+            // Grok app/agent_view/panes.rs ActivePane::Prompt routes wheel
+            // events to PromptWidget first; only a non-scrolling textarea
+            // falls through to scrollback. Keep the vendored textarea's own
+            // viewport, acceleration and cursor-independent scroll override.
+            if ui::prompt_hit_area(app, area).contains(Position::new(m.column, m.row))
+                && app.can_edit()
+                && matches!(
+                    app.draft
+                        .handle_mouse(m, app.composer_area.get(), *app.draft_state.borrow(),),
+                    xai_ratatui_textarea::MouseAction::Scrolled
+                )
+            {
+                app.scroller.cancel();
+                return false;
+            }
             app.scroller
                 .set_viewport_height(ui::viewport_height(app, area));
             let up = m.kind == MouseEventKind::ScrollUp;
@@ -2232,11 +2248,21 @@ fn key(app: &mut App, k: event::KeyEvent, tx: &mpsc::Sender<Job>) -> bool {
         }
     }
     app.history_pointer.set(None);
+    // Cropped Grok up-arrow input-history behavior. Never replays a request.
+    if k.kind == KeyEventKind::Press
+        && k.code == KeyCode::Up
+        && k.modifiers.is_empty()
+        && app.can_edit()
+        && app.pending.is_none()
+        && app.draft.text().is_empty()
+    {
+        app.restore_submitted();
+        return false;
+    }
     // Grok PromptWidget clears the draft on Ctrl+C; Cmd+C keeps selection copy.
     if k.code == KeyCode::Char('c') && k.modifiers == KeyModifiers::CONTROL {
         if k.kind == KeyEventKind::Press && app.ui_visible && app.can_edit() {
             app.reset_draft();
-            app.submit_requires_edit = false;
             app.focus_in_batch = true;
         }
         return false;
@@ -2316,7 +2342,7 @@ fn key(app: &mut App, k: event::KeyEvent, tx: &mpsc::Sender<Job>) -> bool {
                     app.submit(tx);
                 }
             }
-            upstream_enter::EnterOutcome::NewlineInserted => app.submit_requires_edit = false,
+            upstream_enter::EnterOutcome::NewlineInserted => {}
             upstream_enter::EnterOutcome::PassThrough => app.input(k),
         }
         return false;
@@ -2667,14 +2693,7 @@ fn run(args: Args) -> Result<(), String> {
             .or_else(|| std::env::var_os("CODEX_HOME").map(|p| PathBuf::from(p).join("auth.json")))
             .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".codex/auth.json")))
             .ok_or("Cannot locate login path")?;
-        if app.enable_send {
-            let dir = std::env::var_os("HOME")
-                .map(|p| PathBuf::from(p).join(".dot-tui-send-state"))
-                .ok_or("Cannot locate send state")?;
-            let j = Journal::new(dir)?;
-            app.uncertain = j.blocked();
-            app.journal = Some(j);
-        }
+        diagnostics::init()?;
         #[cfg(target_os = "macos")]
         app.clipboard
             .replace(Box::new(clipboard_bridge::SystemClipboard));
@@ -2973,7 +2992,7 @@ mod tests {
         let (mut a, (tx, _rx)) = (App::demo(), mpsc::channel());
         a.messages[0].text = "many rows\n".repeat(100);
         a.expanded_messages.insert("1".into(), true);
-        a.scroll = u16::MAX;
+        a.scroll = u16::MAX as usize;
         let area = Rect::new(0, 0, 100, 30);
         ui::settle(&a, area);
         let limit = ui::scroll_limit(&a, area);
@@ -3059,18 +3078,80 @@ mod tests {
     }
 
     #[test]
-    fn uncertain_locks_no_retry_or_cancel() {
+    fn uncertain_result_preserves_history_and_requires_explicit_submission() {
         let (mut a, (tx, rx)) = (App::demo(), mpsc::channel());
         a.append("test");
         a.submit(&tx);
+        assert_eq!(a.draft(), "");
         let mut b = FakeBackend::new();
         b.fail_uncertain = true;
         let mut source = Source::Demo(b);
         a.apply(source.perform(rx.try_recv().unwrap()), &tx);
-        assert!(a.uncertain);
+        assert!(a.uncertain && a.can_edit());
         a.submit(&tx);
         assert!(rx.try_recv().is_err());
+        key(&mut a, press(KeyCode::Up), &tx);
         assert_eq!(a.draft(), "test");
+        assert!(rx.try_recv().is_err());
+        key(&mut a, press(KeyCode::Enter), &tx);
+        assert!(matches!(rx.try_recv(), Ok(Job::Send(..))));
+    }
+    #[test]
+    fn late_success_and_failure_never_overwrite_new_input() {
+        for result in [
+            Ok("accepted".into()),
+            Err(SendError::Uncertain("unknown".into())),
+            Err(SendError::NotSent("upload failed".into())),
+        ] {
+            let (tx, rx) = mpsc::channel();
+            let mut a = App::demo();
+            a.append("first");
+            a.submit(&tx);
+            let Job::Send(g, p) = rx.try_recv().unwrap() else {
+                panic!()
+            };
+            a.append("next draft");
+            assert_eq!(a.draft(), "next draft");
+            a.apply(Reply::Sent(g, p.key, result), &tx);
+            assert_eq!(a.draft(), "next draft");
+        }
+    }
+    #[test]
+    fn unknown_error_survives_background_refresh_without_input_lock() {
+        let (tx, _) = mpsc::channel();
+        let mut a = App::demo();
+        a.uncertain = true;
+        a.send_error = Some("message timeout".into());
+        a.begin("读取消息");
+        assert!(a.status_line().contains("message timeout"));
+        a.apply(Reply::Page(0, false, Ok(demo_messages())), &tx);
+        assert!(a.status_line().contains("message timeout"));
+        a.append("new input");
+        assert_eq!(a.draft(), "new input");
+    }
+    #[test]
+    fn read_reply_does_not_drop_queued_send_or_allow_duplicate() {
+        let (tx, rx) = mpsc::channel();
+        let mut a = App::demo();
+        a.begin("读取消息");
+        a.append("first");
+        a.submit(&tx);
+        let Job::Send(g, p) = rx.try_recv().unwrap() else {
+            panic!()
+        };
+        a.append("new draft");
+        a.apply(Reply::Page(g, false, Ok(demo_messages())), &tx);
+        assert_eq!(a.pending.as_ref().unwrap().key, p.key);
+        assert_eq!(a.draft(), "new draft");
+        a.submit(&tx);
+        assert!(rx.try_recv().is_err());
+        a.apply(
+            Reply::Sent(g, p.key, Err(SendError::Uncertain("timeout".into()))),
+            &tx,
+        );
+        assert_eq!(a.draft(), "new draft");
+        assert!(a.pending.is_none());
+        assert!(rx.try_recv().is_err());
     }
     #[test]
     fn pending_quit_warns_and_escape_waits() {
@@ -3084,12 +3165,12 @@ mod tests {
         assert!(!a.quit_review);
     }
     #[test]
-    fn draft_limits_and_controls() {
+    fn draft_preserves_long_text_and_filters_terminal_controls() {
         let mut a = App::demo();
         a.append("\x1b]52;x\x07\n中文");
         assert!(!a.draft().contains('\x1b'));
         a.append(&"a".repeat(17000));
-        assert_eq!(a.draft().chars().count(), 16000);
+        assert!(a.draft().ends_with(&"a".repeat(17000)));
     }
     #[test]
     fn read_only_cannot_compose_or_send() {

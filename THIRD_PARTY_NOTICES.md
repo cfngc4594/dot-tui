@@ -220,7 +220,8 @@ The clicked chip's attachment number is preserved in async and cached previews.
 The Dot-only 30-second UI phase watchdog and its two obsolete assertions were
 removed. Per-request HTTP timeout, connection timeout, public-address pinning,
 no-replay send behavior, journal locking and disconnected-worker detection
-are unchanged. No tests or application execution were performed.
+were unchanged in that historical revision. The journal lock is removed in
+0.8.1 below. No tests or application execution were performed for that revision.
 
 ## Slash language menu and fold anchoring
 
@@ -355,3 +356,44 @@ own MIT/Apache texts, the full upstream asset document, the Grok/Tokyo Night
 notices and the separate modified Swift attribution are all retained. Root
 crate license collection is not treated as sufficient evidence for embedded
 assets. Future dependency/asset upgrades require matching supplemental notices.
+
+## Send editing and diagnostics adaptation (0.8.1)
+
+Reference: Grok Build `2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8`, Apache-2.0:
+`crates/codegen/xai-grok-pager/src/app/agent_view/prompt.rs` (widget editing),
+`app/dispatch/prompt.rs` (consumed input/history and image stash), and
+`app/effects/mod.rs` (send start/done, elapsed time, result and request identity).
+The existing extracted PromptWidget/TextArea are reused unchanged. Dot-specific
+glue keeps consumed image/chip state in session history and maps its HTTP upload
+and message stages to redacted diagnostics. This is not the Grok ACP runtime or
+an exact copy of its agent/session/queue implementation.
+
+The 0.8.1 diagnostics entry uses the original `ClientLogEntry` field layout
+from `crates/codegen/xai-grok-telemetry/src/logs/unified_log.rs` and
+`make_entry`/`now_ts` bodies from `xai-grok-pager/src/unified_log.rs` at
+2bdd1d6 (Apache-2.0). Dot substitutes its version and an owner-only local
+sink; ACP forwarding, session IDs, and external telemetry are not included.
+Only allowlisted HTTP stage/error context is recorded.
+
+## Prompt viewport and wheel parity
+
+`src/upstream_ui.rs` now uses the original `area.height / 2` composer limit
+from `app/agent_view/render.rs:804–811` at fixed Grok commit
+`2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8`, replacing Dot's eight-row cap.
+The existing `PromptWidget::desired_height` extraction retains its measured
+text rows, padding and clamp. Dot still omits agent-only optional panels.
+The mouse-wheel branch in `src/main.rs` follows
+`app/agent_view/panes.rs:1245–1299`: hit-test the prompt, let the original
+textarea consume scrolling, and fall back to history when it cannot scroll.
+`ImageComposer::handle_mouse` already returns the vendored `MouseAction`, so
+Dot tests `Scrolled` directly instead of recreating `handle_mouse_scroll`.
+The original vendored TextArea owns scrolling, clamping, cursor-independent
+viewport overrides, and resuming cursor-follow on editing. No new scrolling
+algorithm is introduced. Dot's event-loop and modal/read-only gates remain.
+
+Code-fence rendering continues to use the unchanged original Markdown crates
+and syntax assets recorded by `vendor/UPSTREAM_MANIFEST.json`. Regression
+checks cover hidden fences, highlighting, wrapping, and preserving original
+spans/background through Dot's timestamp/gutter wrapper. These checks do not
+claim parity with Grok's agent/tool-specific code viewers or all interactive
+code-block actions, which are not part of this message-rendering adapter.

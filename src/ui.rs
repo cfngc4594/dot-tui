@@ -747,8 +747,7 @@ pub(super) fn draw(f: &mut Frame, app: &App) {
         );
     }
     let composer = geometry.prompt;
-    let input_available =
-        app.enable_send && app.pending.is_none() && !app.uncertain && !app.quit_review;
+    let input_available = app.enable_send && !app.quit_review;
     let enabled = input_available && app.prompt_focused && app.window_focused;
     f.buffer_mut().set_style(
         composer,
@@ -913,7 +912,7 @@ fn modal(f: &mut Frame, app: &App, area: Rect) {
     );
     let text_area = exit_area(area);
     if app.quit_review {
-        let text = "请求正在提交。退出不会撤回请求，结果可能不确定。\n\n重启后将锁定发送，请先核对官方应用。";
+        let text = "请求正在提交。退出不会撤回请求，结果可能不确定。\n\n草稿仅保存在当前会话。请先核对官方应用，勿自动重发。";
         f.render_widget(
             Paragraph::new(
                 rows(&crate::i18n::ui(text), text_area.width as usize)
@@ -951,7 +950,7 @@ mod tests {
         let body = body_area(&a, area);
         let expected = transcript(&a, body.width as usize)
             .len()
-            .saturating_sub(body.height as usize) as u16;
+            .saturating_sub(body.height as usize);
         assert_eq!(scroll_limit(&a, area), expected);
         assert!(scroll_limit(&a, area).saturating_sub(3) < expected);
         assert_eq!(scroll_limit(&a, Rect::new(0, 0, 20, 5)), 0);
@@ -1048,7 +1047,7 @@ mod inline_media_tests {
         let media = std::collections::HashMap::from([("f".into(), info.clone())]);
         for width in [18, 32, 80, 120] {
             let (_, fallback) = transcript_layout_media(
-                &[message("you")],
+                &[message("dot")],
                 width,
                 &Default::default(),
                 &media,
@@ -1061,7 +1060,7 @@ mod inline_media_tests {
                     .all(|a| a.image_rows.is_none())
             );
             let (_, ready) = transcript_layout_media(
-                &[message("you")],
+                &[message("dot")],
                 width,
                 &Default::default(),
                 &media,
@@ -1083,7 +1082,7 @@ mod inline_media_tests {
                 .unwrap();
             assert_eq!(button.row, image.row + image.height as usize + 1);
             let (_, loading) = transcript_layout_media(
-                &[message("you")],
+                &[message("dot")],
                 width,
                 &Default::default(),
                 &Default::default(),
@@ -1111,7 +1110,8 @@ mod inline_media_tests {
                 dimensions: (240, 160),
             },
         )]);
-        for role in ["you", "dot"] {
+        // Human attachments are chips now; inline media belongs to dot messages.
+        for role in ["dot"] {
             for inline in [true, false] {
                 let (lines, ranges) = transcript_layout_media(
                     &[message(role)],
@@ -1154,7 +1154,7 @@ mod media_anchor_tests {
     fn asynchronous_growth_before_second_attachment_preserves_its_button_anchor() {
         let mut m = crate::backend::Message {
             id: "m".into(),
-            role: "you".into(),
+            role: "dot".into(),
             text: "fixture".into(),
             created_at: String::new(),
             files: vec![],
@@ -1198,7 +1198,7 @@ mod media_anchor_tests {
         let timeline = Timeline {
             content: Rect::new(0, 0, 80, 2),
             track: None,
-            total: lines.len() as u16,
+            total: lines.len(),
             prepared: Some(Arc::new(timeline_cache::Prepared {
                 width: 80,
                 lines,
@@ -1206,10 +1206,7 @@ mod media_anchor_tests {
             })),
             pending: false,
         };
-        assert_eq!(
-            resolve_anchor_from(&timeline, &anchor),
-            Some(expected as u16)
-        );
+        assert_eq!(resolve_anchor_from(&timeline, &anchor), Some(expected));
     }
 }
 #[cfg(test)]
@@ -1223,7 +1220,7 @@ mod media_hit_tests {
         let mut app = App::demo();
         app.messages = vec![crate::backend::Message {
             id: "m".into(),
-            role: "you".into(),
+            role: "dot".into(),
             text: "fixture".into(),
             created_at: String::new(),
             files: vec!["f".into()],
@@ -1245,7 +1242,7 @@ mod media_hit_tests {
             .iter()
             .find(|a| a.image_rows.is_some())
             .unwrap();
-        app.scroll = (image.row + 3) as u16;
+        app.scroll = image.row + 3;
         app.follow_latest = false;
         app.prompt_focused = false;
         let mut terminal =

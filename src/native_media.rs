@@ -362,7 +362,7 @@ mod budget_tests {
         assert!(!s.can_load_auto("new"));
         assert!(s.retain("new".into(), small()));
         assert!(!s.can_load_auto("key-37"));
-        assert!(s.open("new", |p| p.is_file()));
+        assert!(s.cached("new").is_some_and(|p| p.is_file()));
         let files: Vec<_> = s.files.iter().map(|(_, p)| p.dir.clone()).collect();
         drop(s);
         assert!(files.iter().all(|p| !p.exists()));

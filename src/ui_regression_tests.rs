@@ -221,34 +221,29 @@ fn prompt_matches_original_textarea_at_same_character_grids() {
 
 #[test]
 fn footer_complete_hints_and_hits_share_full_width_offset_geometry() {
-    let total: u16 = FOOTER_HINTS.iter().map(|s| s.width() as u16).sum::<u16>()
-        + 5 * (FOOTER_HINTS.len() as u16 - 1);
+    let hints = footer_labels(&App::demo());
+    let total: u16 =
+        hints.iter().map(|s| s.width() as u16).sum::<u16>() + 5 * (hints.len() as u16 - 1);
     for width in [42, total + 3, total + 4, total + 5, 120] {
         for (x, y) in [(0, 0), (7, 5)] {
             let area = Rect::new(x, y, width, 30);
             let mut t = Terminal::new(TestBackend::new(area.right(), area.bottom())).unwrap();
             t.draw(|f| footer(f, &App::demo(), area, true)).unwrap();
-            let hints = footer_hints(area);
+            let geometry = footer_geometry(area, &hints);
             let row = area.bottom() - 2;
-            assert_eq!(hints.len() == FOOTER_HINTS.len(), width >= total + 4);
+            assert_eq!(geometry.len() == hints.len(), width >= total + 4);
             assert_eq!(
                 (area.x..area.right())
                     .filter(|x| t.backend().buffer()[(*x, row)].symbol() == "│")
                     .count(),
-                hints.len() - 1
+                geometry.len() - 1
             );
-            for (i, (r, sep)) in hints.iter().enumerate() {
+            for (_i, (r, sep)) in geometry.iter().enumerate() {
                 assert!(r.right() <= area.right() - 2);
                 for col in r.x..r.right() {
                     assert_eq!(
                         hit_test(area, col, row),
-                        if i == 0 {
-                            Some(Action::Earlier)
-                        } else if i == 1 {
-                            Some(Action::Refresh)
-                        } else {
-                            None
-                        }
+                        None // Footer now contains shortcuts, not removed Earlier/Refresh actions.
                     );
                 }
                 if let Some(sep) = sep {
@@ -272,6 +267,7 @@ fn footer_complete_hints_and_hits_share_full_width_offset_geometry() {
 
 #[test]
 fn footer_wide_row_matches_upstream_shortcut_span_loop_at_same_grid() {
+    let hints = footer_labels(&App::demo());
     // Source: shortcuts_bar.rs::render at fixed 2bdd1d6. Same ordered labels
     // as the dot adapter; reproduce upstream's set_span/Unicode-width loop.
     // Whole-item preflight only changes the narrow truncation case (above).
@@ -284,7 +280,7 @@ fn footer_wide_row_matches_upstream_shortcut_span_loop_at_same_grid() {
         let mut expected = Buffer::empty(content);
         let mut col = content.x;
         let style = Style::default();
-        for (i, text) in FOOTER_HINTS.iter().enumerate() {
+        for (i, text) in hints.iter().enumerate() {
             if i > 0 {
                 let sep = Span::styled("  │  ", style);
                 let sep_width = 5u16;
@@ -325,6 +321,7 @@ fn footer_wide_row_matches_upstream_shortcut_span_loop_at_same_grid() {
 
 #[test]
 fn footer_keys_colon_actions_and_separators_use_actual_groknight_styles() {
+    let hints = footer_labels(&App::demo());
     for area in [Rect::new(0, 0, 100, 30), Rect::new(7, 5, 60, 30)] {
         let mut terminal = Terminal::new(TestBackend::new(area.right(), area.bottom())).unwrap();
         let app = App::demo();
@@ -339,8 +336,8 @@ fn footer_keys_colon_actions_and_separators_use_actual_groknight_styles() {
             })
             .unwrap();
         let buf = terminal.backend().buffer();
-        for (i, (rect, sep)) in footer_hints(area).iter().enumerate() {
-            let key_width = FOOTER_HINTS[i]
+        for (i, (rect, sep)) in footer_geometry(area, &hints).iter().enumerate() {
+            let key_width = hints[i]
                 .split_once(':')
                 .map_or(0, |(key, _)| key.width() as u16);
             let mut x = rect.x;
@@ -371,5 +368,41 @@ fn footer_keys_colon_actions_and_separators_use_actual_groknight_styles() {
                 assert!(!cell.modifier.contains(Modifier::BOLD));
             }
         }
+    }
+}
+
+#[test]
+fn fenced_code_keeps_original_renderer_spans_in_history() {
+    for width in [42usize, 80, 120] {
+        let text = "```rust\nlet answer = 42;\n\nprintln!(\"你好\");\n```";
+        let m = crate::backend::Message {
+            id: "code".into(),
+            role: "dot".into(),
+            text: text.into(),
+            created_at: String::new(),
+            files: vec![],
+        };
+        let (rows, _) = transcript_layout(&[m], width, &Default::default());
+        let original = assistant_lines(
+            text,
+            width.saturating_sub(4 + upstream::timestamp_reserved(false) as usize),
+        );
+        // The history adapter may add gutters, but must preserve every original
+        // highlighted span, blank row and code background unchanged.
+        for (row, source) in rows.iter().zip(original.iter()) {
+            assert_eq!(
+                &row.spans[1..1 + source.spans.len()],
+                source.spans.as_slice()
+            );
+            if source.style.bg.is_some() {
+                assert_eq!(row.style.bg, source.style.bg);
+            }
+        }
+        assert!(
+            !rows
+                .iter()
+                .flat_map(|l| &l.spans)
+                .any(|s| s.content.contains("```"))
+        );
     }
 }
