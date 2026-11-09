@@ -7,7 +7,6 @@ use reqwest::{
 };
 use serde_json::Value;
 use std::{
-    fs::OpenOptions,
     io::Read,
     path::{Path, PathBuf},
     time::Duration,
@@ -370,44 +369,25 @@ fn messages_url(room: &str, before: Option<&str>) -> Result<Url, String> {
 }
 
 fn read_auth(path: &Path) -> Result<(String, String), String> {
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        Err("Live login is currently supported only on Unix; Windows ACL validation is not implemented.".into())
+    let file = crate::platform_fs::read(path, true).map_err(|_| {
+        "Cannot securely open private login file. Use official Codex login first.".to_owned()
+    })?;
+    let meta = file
+        .metadata()
+        .map_err(|_| "Cannot inspect login file.".to_owned())?;
+    if meta.len() > MAX_AUTH {
+        return Err("Login file exceeds size limit.".into());
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-        // O_NOFOLLOW rejects the final symlink; descriptor metadata avoids a check/open race.
-        let file = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(path)
-            .map_err(|_| {
-                "Cannot securely open login file. Use official Codex login first.".to_owned()
-            })?;
-        let meta = file
-            .metadata()
-            .map_err(|_| "Cannot inspect login file.".to_owned())?;
-        if !meta.is_file() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
-            return Err(
-                "Login must be a regular file owned by you with no group/other permissions.".into(),
-            );
-        }
-        if meta.len() > MAX_AUTH {
-            return Err("Login file exceeds size limit.".into());
-        }
-        let mut bytes = Vec::new();
-        file.take(MAX_AUTH + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|_| "Cannot read login file.".to_owned())?;
-        if bytes.len() as u64 > MAX_AUTH {
-            return Err("Login file exceeds size limit.".into());
-        }
-        // Support UTF-8 BOM, matching the reference client.
-        let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes);
-        parse_auth(bytes)
+    let mut bytes = Vec::new();
+    file.take(MAX_AUTH + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Cannot read login file.".to_owned())?;
+    if bytes.len() as u64 > MAX_AUTH {
+        return Err("Login file exceeds size limit.".into());
     }
+    // Support UTF-8 BOM, matching the reference client.
+    let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes);
+    parse_auth(bytes)
 }
 
 fn parse_auth(bytes: &[u8]) -> Result<(String, String), String> {

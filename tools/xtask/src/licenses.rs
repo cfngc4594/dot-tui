@@ -271,15 +271,11 @@ mod tests {
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "dot-license-test-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ));
-            fs::create_dir(&path).unwrap();
+            let path = tempfile::Builder::new()
+                .prefix("dot-license-test-")
+                .tempdir()
+                .unwrap()
+                .keep();
             fs::create_dir_all(path.join("licenses/assets")).unwrap();
             fs::create_dir_all(path.join("dependency")).unwrap();
             fs::create_dir_all(path.join("development")).unwrap();

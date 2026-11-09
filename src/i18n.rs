@@ -117,7 +117,7 @@ fn translate(text: &str, depth: usize) -> String {
 }
 pub fn load() -> (Option<PathBuf>, Option<String>) {
     set(Language::English);
-    let Some(home) = std::env::var_os("HOME") else {
+    let Some(home) = crate::platform_fs::home() else {
         return (None, Some("Cannot locate language preferences".into()));
     };
     let path = PathBuf::from(home).join(".dot-tui/language");
@@ -129,20 +129,12 @@ pub fn load() -> (Option<PathBuf>, Option<String>) {
     (Some(path), None)
 }
 fn private(path: &Path, directory: bool) -> Result<(), String> {
-    use std::os::unix::fs::MetadataExt;
-    let m = std::fs::symlink_metadata(path).map_err(|_| "Cannot inspect language preferences")?;
-    if m.file_type().is_symlink()
-        || m.uid() != unsafe { libc::geteuid() }
-        || m.mode() & 0o077 != 0
-        || (directory && !m.is_dir())
-        || (!directory && !m.is_file())
-    {
-        return Err("Language preferences must be private regular files".into());
-    }
-    Ok(())
+    crate::platform_fs::check(path, directory)
+        .map_err(|_| "Preferences must be private regular files owned by you".into())
 }
+
 fn read(path: &Path) -> Result<Option<Language>, String> {
-    use std::{io::Read, os::unix::fs::OpenOptionsExt};
+    use std::io::Read;
     let parent = path.parent().ok_or("Cannot locate language preferences")?;
     match std::fs::symlink_metadata(parent) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -154,11 +146,8 @@ fn read(path: &Path) -> Result<Option<Language>, String> {
         Err(_) => return Err("Cannot inspect language preferences".into()),
         Ok(_) => private(path, false)?,
     };
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-        .map_err(|_| "Cannot read language preferences")?;
+    let file =
+        crate::platform_fs::read(path, true).map_err(|_| "Cannot read language preferences")?;
     let mut text = String::new();
     file.take(33)
         .read_to_string(&mut text)
@@ -170,28 +159,15 @@ fn read(path: &Path) -> Result<Option<Language>, String> {
     }
 }
 pub fn save(path: &Path, language: Language) -> Result<(), String> {
-    use std::{
-        io::Write,
-        os::unix::fs::{DirBuilderExt, OpenOptionsExt},
-    };
+    use std::io::Write;
     let parent = path.parent().ok_or("Cannot locate language preferences")?;
-    match std::fs::DirBuilder::new().mode(0o700).create(parent) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(_) => return Err("Cannot create language preferences".into()),
-    };
-    private(parent, true)?;
+    crate::platform_fs::directory(parent, true).map_err(|_| "Cannot create private preferences")?;
     if path.exists() {
         private(path, false)?;
     }
     let temporary = parent.join(format!(".language-{}", uuid::Uuid::new_v4()));
     let result = (|| {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&temporary)
+        let mut file = crate::platform_fs::create_new(&temporary)
             .map_err(|_| "Cannot save language preference")?;
         file.write_all(if language == Language::English {
             b"en\n"
@@ -205,4 +181,22 @@ pub fn save(path: &Path, language: Language) -> Result<(), String> {
     })();
     let _ = std::fs::remove_file(temporary);
     result
+}
+
+#[cfg(test)]
+mod private_preferences_tests {
+    use super::*;
+    #[test]
+    fn atomic_private_preferences_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("dot-i18n-test-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("language");
+        assert!(matches!(read(&path), Ok(None)));
+        save(&path, Language::Chinese).unwrap();
+        assert!(matches!(read(&path), Ok(Some(Language::Chinese))));
+        save(&path, Language::English).unwrap();
+        assert!(matches!(read(&path), Ok(Some(Language::English))));
+        crate::platform_fs::check(&path, false).unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

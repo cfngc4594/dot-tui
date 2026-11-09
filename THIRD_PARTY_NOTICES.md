@@ -459,3 +459,18 @@ not repeatedly issued. This defensive compatibility adaptation preserves the
 public Grok media helpers and does not change automatic display preferences.
 Multipart image transfers still complete before other graphics commands.
 Protocol regression tests do not constitute visual validation on every terminal.
+
+## Cross-platform adapters (0.8.6)
+
+Linux and Windows clipboard operations use `arboard`, the backend selected by
+public Grok Build `2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8` in
+`xai-grok-shared/src/clipboard.rs`. Dot's bounded single-worker adapter preserves
+clipboard ownership and serializes operations, with a two-second caller deadline;
+it is not a verbatim copy of Grok's Linux CLI fallback/OSC52 machinery. The macOS
+pasteboard adapter is unchanged. Headless hosts may lack a system clipboard;
+terminal text paste and explicit file selection remain available.
+
+Windows private-file validation and credential loading are Dot-specific backend
+adaptations. New private files use a protected current-user/SYSTEM DACL; existing
+credential files must be current-user-owned with no grants beyond that user,
+SYSTEM or Administrators. No authentication tokens are copied between machines.

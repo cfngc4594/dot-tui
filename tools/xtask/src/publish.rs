@@ -30,6 +30,19 @@ fn verify(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+fn is_link(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            m.file_attributes() & 0x400 != 0
+        }
+        #[cfg(not(windows))]
+        {
+            m.file_type().is_symlink()
+        }
+    })
+}
 pub fn publish(source: &Path, destination: &Path) -> Result<serde_json::Value> {
     publish_with(source, destination, verify)
 }
@@ -38,16 +51,18 @@ fn publish_with(
     destination: &Path,
     verify: impl Fn(&Path) -> Result<()>,
 ) -> Result<serde_json::Value> {
+    #[cfg(unix)]
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let source = source.canonicalize()?;
     let destination = std::path::absolute(destination)?;
-    if source == destination
-        || fs::symlink_metadata(&destination).is_ok_and(|m| m.file_type().is_symlink())
-    {
+    if source == destination || is_link(&destination) {
         bail!("Use separate source and non-symlink destination");
     }
     fs::create_dir_all(destination.parent().context("Destination needs a parent")?)?;
+    #[cfg(unix)]
     let previous = fs::metadata(&destination).ok().map(|m| m.ino());
+    #[cfg(not(unix))]
+    let previous: Option<u64> = None;
     let expected = digest(&source)?;
     let mut staged = tempfile::Builder::new()
         .prefix(".dot-tui-publish-")
@@ -55,6 +70,7 @@ fn publish_with(
     std::io::copy(&mut fs::File::open(&source)?, &mut staged)?;
     staged.flush()?;
     staged.as_file().sync_all()?;
+    #[cfg(unix)]
     staged
         .as_file()
         .set_permissions(fs::Permissions::from_mode(0o755))?;
@@ -63,13 +79,16 @@ fn publish_with(
     }
     verify(staged.path())?;
     // Recheck the destination immediately before replacement; never follow its symlink.
-    if fs::symlink_metadata(&destination).is_ok_and(|m| m.file_type().is_symlink()) {
+    if is_link(&destination) {
         bail!("Symlink destination refused");
     }
     staged.persist(&destination).map_err(|e| e.error)?;
     verify(&destination)?;
-    let current = fs::metadata(&destination)?.ino();
-    if previous == Some(current) {
+    #[cfg(unix)]
+    let current = Some(fs::metadata(&destination)?.ino());
+    #[cfg(not(unix))]
+    let current: Option<u64> = None;
+    if previous.is_some() && previous == current {
         bail!("Executable inode did not change");
     }
     Ok(
@@ -80,6 +99,23 @@ fn publish_with(
 mod tests {
     use super::*;
     #[test]
+    fn fresh_destination_has_verified_bytes_and_failed_verification_preserves_it() {
+        let d = tempfile::tempdir().unwrap();
+        let src = d.path().join("src");
+        let dst = d.path().join("dst");
+        fs::write(&src, b"first").unwrap();
+        let result = publish_with(&src, &dst, |_| Ok(())).unwrap();
+        assert_eq!(result["sha256"], crate::sha(b"first"));
+        assert_eq!(fs::read(&dst).unwrap(), b"first");
+        fs::write(&src, b"second").unwrap();
+        assert!(publish_with(&src, &dst, |_| bail!("rejected")).is_err());
+        assert_eq!(fs::read(&dst).unwrap(), b"first");
+        publish_with(&src, &dst, |_| Ok(())).unwrap();
+        assert_eq!(fs::read(&dst).unwrap(), b"second");
+    }
+
+    #[test]
+    #[cfg(unix)]
     fn replaces_inode_and_preserves_old_open_file() {
         let d = tempfile::tempdir().unwrap();
         let src = d.path().join("src");
@@ -95,6 +131,7 @@ mod tests {
         assert_eq!(bytes, b"old");
     }
     #[test]
+    #[cfg(unix)]
     fn verification_failure_and_symlink_leave_destination_untouched() {
         let d = tempfile::tempdir().unwrap();
         let src = d.path().join("src");

@@ -43,7 +43,7 @@ impl ClipboardProvider for SystemClipboard {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            None
+            crate::clipboard_portable::get_text().ok().flatten()
         }
     }
     fn set(&mut self, text: &str) {
@@ -53,7 +53,7 @@ impl ClipboardProvider for SystemClipboard {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = text;
+            let _ = crate::clipboard_portable::set_text(text);
         }
     }
 }

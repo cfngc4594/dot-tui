@@ -17,10 +17,12 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Task {
-    /// Build and package native macOS arm64; never launch or upload it.
+    /// Build and package a supported native target; never launch or upload it.
     BuildRelease {
         #[arg(long)]
         output: Option<PathBuf>,
+        #[arg(long)]
+        target: Option<String>,
         #[arg(long)]
         offline: bool,
     },
@@ -68,7 +70,11 @@ fn output(command: &mut Command) -> Result<String> {
 }
 fn main() -> Result<()> {
     match Args::parse().command {
-        Task::BuildRelease { output, offline } => build::build(&root(), output, offline),
+        Task::BuildRelease {
+            output,
+            offline,
+            target,
+        } => build::build(&root(), output, offline, target),
         Task::CollectLicenses {
             metadata,
             output,

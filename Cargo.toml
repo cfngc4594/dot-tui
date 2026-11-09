@@ -1,6 +1,6 @@
 [package]
 name = "dot-tui"
-version = "0.8.5"
+version = "0.8.6"
 edition = "2024"
 rust-version = "1.89"
 repository = "https://github.com/cfngc4594/dot-tui"
@@ -46,3 +46,9 @@ crossterm = { path = "vendor/crossterm" }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "=0.6.3"
 parking_lot = "0.12.4"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_Memory"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+arboard = { version = "3.6", features = ["wayland-data-control"] }

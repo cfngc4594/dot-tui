@@ -2,7 +2,7 @@
 //! (Apache-2.0): request correlation, elapsed_ms, ok. Dot transport adds an
 //! allowlisted stage/error and numeric HTTP status. Never log URLs or payloads.
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::File,
     io::Write,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
@@ -106,47 +106,19 @@ pub fn classify(e: &reqwest::Error) -> Error {
     }
 }
 pub fn path() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".dot-tui-send-state/diagnostics.jsonl"))
+    crate::platform_fs::home().map(|p| p.join(".dot-tui-send-state/diagnostics.jsonl"))
 }
 pub fn init() -> Result<(), String> {
     let path = path().ok_or("Cannot locate diagnostics")?;
     let dir = path.parent().unwrap();
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    match fs::DirBuilder::new().mode(0o700).create(dir) {
-        Ok(()) => (),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
-        Err(_) => return Err("Cannot create private diagnostics directory".into()),
-    }
-    let m = fs::symlink_metadata(dir).map_err(|_| "Cannot inspect diagnostics directory")?;
-    if !m.is_dir()
-        || m.file_type().is_symlink()
-        || m.uid() != unsafe { libc::geteuid() }
-        || m.mode() & 0o077 != 0
-    {
-        return Err("Diagnostics directory must be private and owned by you".into());
-    }
+    crate::platform_fs::directory(dir, true)
+        .map_err(|_| "Cannot create or validate private diagnostics directory")?;
     let f = open(&path)?;
     let _ = LOG.set(Mutex::new(f));
     Ok(())
 }
 fn open(path: &Path) -> Result<File, String> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let f = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-        .map_err(|_| "Cannot open private diagnostics log")?;
-    let m = f.metadata().map_err(|_| "Cannot inspect diagnostics log")?;
-    if !m.is_file()
-        || m.uid() != unsafe { libc::geteuid() }
-        || m.mode() & 0o077 != 0
-        || m.nlink() != 1
-    {
-        return Err("Diagnostics must be a private regular file owned by you".into());
-    }
-    Ok(f)
+    crate::platform_fs::append(path).map_err(|_| "Cannot open private diagnostics log".into())
 }
 fn record(entry: ClientLogEntry) {
     if let Some(log) = LOG.get()
@@ -212,6 +184,8 @@ impl Drop for Request {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::fs;
     #[test]
     fn sensitive_strings_cannot_enter_log() {
         let r = Request::start(
@@ -231,6 +205,7 @@ mod tests {
         assert!(v["ctx"]["request_id"].is_null());
     }
     #[test]
+    #[cfg(unix)]
     fn private_file_rejects_symlink() {
         use std::os::unix::fs::{MetadataExt, symlink};
         let dir = std::env::temp_dir().join(format!("dot-log-test-{}", uuid::Uuid::new_v4()));

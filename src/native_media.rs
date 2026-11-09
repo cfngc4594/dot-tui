@@ -54,7 +54,6 @@ fn metadata_cost(image: &PastedImage) -> usize {
         .sum::<usize>()
 }
 pub fn prepare(image: PastedImage) -> Result<Prepared, String> {
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let bytes = image.encoded_bytes.as_ref().ok_or("图片数据已不可用")?;
     if bytes.len() > crate::attachments::MAX_FILE_BYTES {
         return Err("图片超过本地限制".into());
@@ -80,10 +79,7 @@ pub fn prepare(image: PastedImage) -> Result<Prepared, String> {
         .and_then(|b| crate::terminal::image::transmit_inline_image(b, 0))
         .map(std::sync::Arc::<str>::from);
     let dir = std::env::temp_dir().join(format!("dot-open-image-{}", uuid::Uuid::new_v4()));
-    std::fs::DirBuilder::new()
-        .mode(0o700)
-        .create(&dir)
-        .map_err(|_| "无法建立私有图片缓存")?;
+    crate::platform_fs::directory(&dir, false).map_err(|_| "无法建立私有图片缓存")?;
     let extension = match image.mime_type.as_str() {
         "image/png" => "png",
         "image/jpeg" => "jpg",
@@ -97,13 +93,7 @@ pub fn prepare(image: PastedImage) -> Result<Prepared, String> {
         }
     };
     let path = dir.join(format!("image.{extension}"));
-    let result = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&path)
-        .and_then(|mut f| f.write_all(bytes));
+    let result = crate::platform_fs::create_new(&path).and_then(|mut f| f.write_all(bytes));
     if result.is_err() {
         let _ = std::fs::remove_dir_all(&dir);
         return Err("无法准备本地图片查看文件".into());
@@ -230,6 +220,7 @@ mod tests {
     use super::*;
     #[test]
     fn private_file_is_retained_for_viewer_and_cleaned_on_drop() {
+        #[cfg(unix)]
         use std::os::unix::fs::PermissionsExt;
         let mut images = crate::image_ingress::stage(
             crate::image_ingress::Input::Bytes(crate::image_ingress::synthetic()),
@@ -239,10 +230,12 @@ mod tests {
         .images;
         let p = prepare(images.remove(0)).unwrap();
         let path = p.path.clone();
+        #[cfg(unix)]
         assert_eq!(
             std::fs::metadata(&p.dir).unwrap().permissions().mode() & 0o777,
             0o700
         );
+        #[cfg(unix)]
         assert_eq!(
             std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             0o600

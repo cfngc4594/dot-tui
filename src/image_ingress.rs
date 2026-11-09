@@ -127,7 +127,23 @@ pub fn stage(input: Input, fake: bool) -> Result<Staged, String> {
                 }
             }
             #[cfg(not(target_os = "macos"))]
-            return Err("此平台尚未接入图片剪贴板；请使用 @ 选择本地图片".into());
+            {
+                // A bracketed paste already inserted text; never probe unrelated clipboard.
+                if matches!(input, Input::Bracketed { .. }) {
+                    text = Some(String::new());
+                } else {
+                    let pasted = crate::clipboard_portable::get_text()?;
+                    if let Some(paths) = pasted.as_deref().and_then(explicit_paths) {
+                        for path in paths {
+                            composer.stage_explicit_path(&path)?;
+                        }
+                    } else if pasted.as_deref().is_some_and(|s| !s.is_empty()) {
+                        text = pasted;
+                    } else if let Some(bytes) = crate::clipboard_portable::get_image()? {
+                        composer.stage_bytes(bytes, None)?;
+                    }
+                }
+            }
         }
     }
     for image in &composer.images {

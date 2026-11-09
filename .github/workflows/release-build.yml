@@ -1,7 +1,6 @@
-name: Prepare macOS arm64 release
+name: Prepare native release bundles
 
-# Preparation only: no tag/push trigger, GitHub Release, publishing credentials
-# or write permission. This workflow has not been triggered during local work.
+# Manual preparation only. No release publication or repository writes.
 'on':
   workflow_dispatch:
 
@@ -10,8 +9,25 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
-    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -20,14 +36,74 @@ jobs:
         run: |
           rustup toolchain install 1.89.0 --profile minimal
           rustup override set 1.89.0
-      - name: Parse installer syntax
+      - name: Parse shell installer
         run: sh -n install.sh
-      - name: Build and package without running the app or tests
-        run: cargo run --manifest-path tools/xtask/Cargo.toml --locked -- build-release
+      - name: Parse PowerShell installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$tokens, [ref]$errors)
+          if ($errors.Count) { $errors | Write-Error; exit 1 }
+      - name: Test app on native host
+        run: cargo test --locked
+      - name: Test release tooling
+        run: cargo test --manifest-path tools/xtask/Cargo.toml --locked
+      - name: Build native bundle without running the app or installer
+        run: cargo run --manifest-path tools/xtask/Cargo.toml --locked -- build-release --target '${{ matrix.target }}'
+      - name: Verify Unix installer in an isolated home using only local bundle
+        if: runner.os != 'Windows'
+        run: |
+          set -eu
+          BUNDLE=$(find "$PWD/dist" -name SHA256SUMS -print -quit)
+          export DOT_TUI_TEST_BUNDLE=$(dirname "$BUNDLE")
+          TEST_ROOT=$(mktemp -d)
+          trap 'rm -rf "$TEST_ROOT"' EXIT
+          mkdir "$TEST_ROOT/mock" "$TEST_ROOT/home"
+          cat > "$TEST_ROOT/mock/curl" <<'SH'
+          #!/bin/sh
+          set -eu
+          out=
+          while [ "$#" -gt 0 ]; do
+            case "$1" in --output) shift; out=$1 ;; esac
+            url=$1; shift
+          done
+          [ -n "$out" ]
+          name=${url##*/}
+          case "$name" in SHA256SUMS|*.tar.gz) ;; *) exit 1 ;; esac
+          cp "$DOT_TUI_TEST_BUNDLE/$name" "$out"
+          SH
+          chmod +x "$TEST_ROOT/mock/curl"
+          HOME="$TEST_ROOT/home" PATH="$TEST_ROOT/mock:$PATH" sh install.sh
+          "$TEST_ROOT/home/.local/bin/dot-tui" --version
+      - name: Verify Windows installer in a temporary directory using only local bundle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = (Get-ChildItem dist -Recurse -Filter SHA256SUMS | Select-Object -First 1).Directory.FullName
+          $env:DOT_TUI_TEST_BUNDLE = $bundle
+          function global:curl.exe {
+            $out = $null
+            for ($i = 0; $i -lt $args.Count; $i++) { if ($args[$i] -eq '--output') { $out = $args[$i+1] } }
+            $name = [IO.Path]::GetFileName([string]$args[-1])
+            if (!$out -or ($name -ne 'SHA256SUMS' -and !$name.EndsWith('.tar.gz'))) { throw 'Unexpected test download' }
+            Copy-Item -LiteralPath (Join-Path $env:DOT_TUI_TEST_BUNDLE $name) -Destination $out
+            $global:LASTEXITCODE = 0
+          }
+          $testDir = Join-Path $env:TEMP ('dot-tui-install-test-' + [Guid]::NewGuid().ToString('N'))
+          try {
+            & ./install.ps1 -InstallDir $testDir
+            & (Join-Path $testDir 'dot-tui.exe') --version
+            if ($LASTEXITCODE -ne 0) { throw 'Binary smoke test failed' }
+          } finally {
+            Remove-Item -LiteralPath $testDir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item Function:\curl.exe
+          }
       - name: Retain prepared bundle for review
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: dot-tui-macos-arm64
+          name: dot-tui-${{ matrix.target }}
           path: dist/
           if-no-files-found: error
           retention-days: 14

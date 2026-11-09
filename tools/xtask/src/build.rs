@@ -6,12 +6,34 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
-const TARGET: &str = "aarch64-apple-darwin";
+const TARGETS: &[&str] = &[
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+];
+fn selected_target(requested: Option<String>, rustc: &str) -> Result<String> {
+    let host = rustc
+        .lines()
+        .find_map(|l| l.strip_prefix("host: "))
+        .context("rustc host missing")?;
+    let target = requested.unwrap_or_else(|| host.to_owned());
+    if !TARGETS.contains(&target.as_str()) {
+        bail!("Unsupported release target: {target}");
+    }
+    if target != host {
+        bail!("Release verification requires a native {target} runner (current host: {host})");
+    }
+    Ok(target)
+}
+
 const ROOT_FILES: &[&str] = &[
     "Cargo.toml",
     "Cargo.lock",
     ".gitignore",
     "install.sh",
+    "install.ps1",
     "README.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
@@ -46,7 +68,7 @@ fn scan(dir: &Path, root: &Path, names: &mut BTreeSet<String>) -> Result<()> {
                 path.strip_prefix(root)?
                     .to_str()
                     .context("Non UTF-8 source path")?
-                    .to_owned(),
+                    .replace(char::from(92), "/"),
             );
         }
     }
@@ -70,10 +92,17 @@ fn source_hashes(root: &Path) -> Result<BTreeMap<String, String>> {
     }
     Ok(hashes)
 }
-fn remap(root: &Path) -> Result<(BTreeMap<String, String>, Vec<Vec<u8>>)> {
+fn remap(root: &Path, target: &str) -> Result<(BTreeMap<String, String>, Vec<Vec<u8>>)> {
     let mut vars: BTreeMap<String, String> = env::vars().collect();
-    vars.insert("MACOSX_DEPLOYMENT_TARGET".into(), "11.0".into());
-    let home = PathBuf::from(env::var_os("HOME").context("HOME is required")?);
+    if target.ends_with("apple-darwin") {
+        vars.insert("MACOSX_DEPLOYMENT_TARGET".into(), "11.0".into());
+    }
+    let home = PathBuf::from(
+        env::var_os("USERPROFILE")
+            .filter(|_| cfg!(windows))
+            .or_else(|| env::var_os("HOME"))
+            .context("HOME or USERPROFILE is required")?,
+    );
     let cargo = vars
         .get("CARGO_HOME")
         .map(PathBuf::from)
@@ -105,8 +134,20 @@ fn remap(root: &Path) -> Result<(BTreeMap<String, String>, Vec<Vec<u8>>)> {
         for p in [lexical, resolved].into_iter().collect::<BTreeSet<_>>() {
             let p = p.to_str().context("Build path must be UTF-8")?;
             private.insert(p.as_bytes().to_vec());
+            // Windows paths can be embedded with either separators or as UTF-16.
+            if target.ends_with("windows-msvc") {
+                for spelling in [p.to_owned(), p.replace(char::from(92), "/")] {
+                    private.insert(spelling.as_bytes().to_vec());
+                    private.insert(spelling.encode_utf16().flat_map(u16::to_le_bytes).collect());
+                }
+            }
+
             flags.push(format!("--remap-path-prefix={p}={logical}"));
-            native.push(format!("-ffile-prefix-map={p}={logical}"));
+            if target.ends_with("windows-msvc") {
+                native.push(format!("/pathmap:{p}={logical}"));
+            } else {
+                native.push(format!("-ffile-prefix-map={p}={logical}"));
+            }
         }
     }
     vars.insert("CARGO_ENCODED_RUSTFLAGS".into(), flags.join("\x1f"));
@@ -125,6 +166,31 @@ fn remap(root: &Path) -> Result<(BTreeMap<String, String>, Vec<Vec<u8>>)> {
         );
     }
     Ok((vars, private.into_iter().collect()))
+}
+fn verify_binary_format(binary: &[u8], target: &str) -> Result<()> {
+    if target.ends_with("unknown-linux-gnu") {
+        let machine = if target.starts_with("aarch64") {
+            183u16
+        } else {
+            62u16
+        };
+        if binary.get(..6) != Some(b"\x7fELF\x02\x01")
+            || binary.get(18..20) != Some(machine.to_le_bytes().as_slice())
+        {
+            bail!("Release is not the expected 64-bit little-endian ELF executable");
+        }
+    } else if target.ends_with("windows-msvc") {
+        let offset = binary
+            .get(60..64)
+            .map(|b| u32::from_le_bytes(b.try_into().unwrap()) as usize);
+        if binary.get(..2) != Some(b"MZ")
+            || offset.and_then(|i| i.checked_add(6).and_then(|end| binary.get(i..end)))
+                != Some(b"PE\0\0\x64\x86")
+        {
+            bail!("Release is not an x86_64 PE executable");
+        }
+    }
+    Ok(())
 }
 fn no_private_paths(binary: &[u8], prefixes: &[Vec<u8>]) -> Result<()> {
     if prefixes
@@ -159,7 +225,11 @@ fn archive(path: &Path, files: &BTreeMap<String, Vec<u8>>) -> Result<()> {
     for (name, data) in files {
         let mut h = tar::Header::new_ustar();
         h.set_size(data.len() as u64);
-        h.set_mode(if name == "dot-tui" { 0o755 } else { 0o644 });
+        h.set_mode(if name == "dot-tui" || name == "dot-tui.exe" {
+            0o755
+        } else {
+            0o644
+        });
         h.set_mtime(0);
         h.set_uid(0);
         h.set_gid(0);
@@ -192,14 +262,21 @@ fn validate_output(root: &Path, output: &Path) -> Result<()> {
     }
     Ok(())
 }
-pub fn build(root: &Path, output: Option<PathBuf>, offline: bool) -> Result<()> {
-    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        bail!("Build this release natively on Apple Silicon macOS");
-    }
-    // Also reject a translated x86 invocation if this tool is copied between hosts.
-    if crate::output(Command::new("uname").arg("-m"))?.trim() != "arm64" {
-        bail!("Native arm64 host required");
-    }
+pub fn build(
+    root: &Path,
+    output: Option<PathBuf>,
+    offline: bool,
+    requested: Option<String>,
+) -> Result<()> {
+    let target_triple =
+        selected_target(requested, &crate::output(Command::new("rustc").arg("-vV"))?)?;
+    let target_name = target_triple.as_str();
+    let mac = target_name.ends_with("apple-darwin");
+    let executable = if target_name.ends_with("windows-msvc") {
+        "dot-tui.exe"
+    } else {
+        "dot-tui"
+    };
     let package: toml::Value = toml::from_str(&fs::read_to_string(root.join("Cargo.toml"))?)?;
     let version = package["package"]["version"]
         .as_str()
@@ -215,6 +292,10 @@ pub fn build(root: &Path, output: Option<PathBuf>, offline: bool) -> Result<()> 
     if !String::from_utf8_lossy(&installer).contains(&format!("DEFAULT_VERSION={version}\n")) {
         bail!("Installer default and Cargo package version differ");
     }
+    let powershell = fs::read_to_string(root.join("install.ps1"))?;
+    if !powershell.contains(&format!("[string]$Version = '{version}'")) {
+        bail!("PowerShell installer default and Cargo package version differ");
+    }
     let output = std::path::absolute(
         output.unwrap_or_else(|| root.join("dist").join(format!("v{version}"))),
     )?;
@@ -222,14 +303,14 @@ pub fn build(root: &Path, output: Option<PathBuf>, offline: bool) -> Result<()> 
         bail!("Output already exists; use a fresh directory");
     }
     validate_output(root, &output)?;
-    let (vars, private) = remap(root)?;
+    let (vars, private) = remap(root, target_name)?;
     let mut build = Command::new("cargo");
     build.current_dir(root).env_clear().envs(&vars).args([
         "build",
         "--release",
         "--locked",
         "--target",
-        TARGET,
+        target_name,
     ]);
     if offline {
         build.arg("--offline");
@@ -244,24 +325,35 @@ pub fn build(root: &Path, output: Option<PathBuf>, offline: bool) -> Result<()> 
     } else {
         root.join(target)
     };
-    let binary = target.join(TARGET).join("release/dot-tui");
-    crate::run(
-        Command::new("/usr/bin/lipo")
-            .arg(&binary)
-            .args(["-verify_arch", "arm64"]),
-    )?;
-    crate::run(
-        Command::new("/usr/bin/codesign")
-            .args(["--verify", "--strict"])
-            .arg(&binary),
-    )?;
+    let binary = target.join(target_name).join("release").join(executable);
+    if mac {
+        crate::run(Command::new("/usr/bin/lipo").arg(&binary).args([
+            "-verify_arch",
+            if target_name.starts_with("aarch64") {
+                "arm64"
+            } else {
+                "x86_64"
+            },
+        ]))?;
+        // Intel linkers need not ad-hoc sign by default; sign only this new build.
+        crate::run(
+            Command::new("/usr/bin/codesign")
+                .args(["--force", "--sign", "-", "--timestamp=none"])
+                .arg(&binary),
+        )?;
+        crate::run(
+            Command::new("/usr/bin/codesign")
+                .args(["--verify", "--strict"])
+                .arg(&binary),
+        )?;
+    }
     let mut metadata = Command::new("cargo");
     metadata.current_dir(root).env_clear().envs(&vars).args([
         "metadata",
         "--locked",
         "--format-version=1",
         "--filter-platform",
-        TARGET,
+        target_name,
     ]);
     if offline {
         metadata.arg("--offline");
@@ -269,16 +361,17 @@ pub fn build(root: &Path, output: Option<PathBuf>, offline: bool) -> Result<()> 
     let metadata = serde_json::from_str(&crate::output(&mut metadata)?)?;
     let (notices, inventory) = crate::licenses::collect(&metadata, root)?;
     let binary = fs::read(binary)?;
+    verify_binary_format(&binary, target_name)?;
     no_private_paths(&binary, &private)?;
     let mut files = BTreeMap::from([
-        ("dot-tui".into(), binary.clone()),
+        (executable.into(), binary.clone()),
         ("VERSION".into(), format!("{version}\n").into_bytes()),
         ("THIRD_PARTY_LICENSES.txt".into(), notices.into_bytes()),
     ]);
     for name in ["LICENSE", "THIRD_PARTY_NOTICES.md", "README.md"] {
         files.insert(name.into(), fs::read(root.join(name))?);
     }
-    let asset = format!("dot-tui-v{version}-{TARGET}.tar.gz");
+    let asset = format!("dot-tui-v{version}-{target_name}.tar.gz");
     fs::create_dir_all(output.parent().context("Output parent missing")?)?;
     let temp = tempfile::Builder::new()
         .prefix(".dot-tui-release-")
@@ -287,16 +380,17 @@ pub fn build(root: &Path, output: Option<PathBuf>, offline: bool) -> Result<()> 
     fs::create_dir(&stage)?;
     archive(&stage.join(&asset), &files)?;
     fs::write(stage.join("install.sh"), installer)?;
+    fs::copy(root.join("install.ps1"), stage.join("install.ps1"))?;
     let sources = source_hashes(root)?;
     fs::write(
         stage.join("SOURCE_FILES.txt"),
         sources.keys().map(|s| format!("{s}\n")).collect::<String>(),
     )?;
     let mut sums = BTreeMap::new();
-    for name in [&asset, "install.sh", "SOURCE_FILES.txt"] {
+    for name in [&asset, "install.sh", "install.ps1", "SOURCE_FILES.txt"] {
         sums.insert(name.to_owned(), crate::sha(&fs::read(stage.join(name))?));
     }
-    let manifest = json!({"version":version,"target":TARGET,"minimum_macos_declared":"11.0","binary_sha256":crate::sha(&binary),"assets_sha256":sums,"rustc":crate::output(Command::new("rustc").arg("--version"))?.trim(),"cargo":crate::output(Command::new("cargo").arg("--version"))?.trim(),"license_inventory":inventory,"source_sha256":sources,"private_build_paths_scan_passed":true,"path_remapping":"Rust and native compiler paths remapped to /build roots; no private input paths recorded","program_launched":false,"tests_run":false,"published":false,"signature":"locally verified; current build uses ad-hoc signature, not Developer ID identity"});
+    let manifest = json!({"version":version,"target":target_name,"minimum_macos_declared":if mac { Some("11.0") } else { None },"binary_sha256":crate::sha(&binary),"assets_sha256":sums,"rustc":crate::output(Command::new("rustc").arg("--version"))?.trim(),"cargo":crate::output(Command::new("cargo").arg("--version"))?.trim(),"license_inventory":inventory,"source_sha256":sources,"private_build_paths_scan_passed":true,"path_remapping":"Rust and native compiler paths remapped to /build roots; no private input paths recorded","program_launched":false,"tests_run":false,"published":false,"signature":if mac { "locally verified ad-hoc signature; not Developer ID" } else { "unsigned; integrity verified by SHA256, no platform signing identity" }});
     fs::write(
         stage.join("release-manifest.json"),
         format!("{}\n", serde_json::to_string_pretty(&manifest)?),
@@ -326,6 +420,7 @@ pub fn build(root: &Path, output: Option<PathBuf>, offline: bool) -> Result<()> 
 mod tests {
     use super::*;
     #[test]
+    #[cfg(unix)]
     fn output_rejects_source_subdirectories_including_symlinked_parent() {
         let d = tempfile::tempdir().unwrap();
         fs::create_dir(d.path().join("tools")).unwrap();
@@ -333,6 +428,40 @@ mod tests {
         std::os::unix::fs::symlink(d.path().join("tools"), d.path().join("alias")).unwrap();
         assert!(validate_output(d.path(), &d.path().join("alias/release")).is_err());
         assert!(validate_output(d.path(), &d.path().join("dist/v1.0.0")).is_ok());
+    }
+    #[test]
+    fn binary_headers_must_match_target() {
+        let mut elf = vec![0; 64];
+        elf[..6].copy_from_slice(b"\x7fELF\x02\x01");
+        elf[18..20].copy_from_slice(&183u16.to_le_bytes());
+        assert!(verify_binary_format(&elf, "aarch64-unknown-linux-gnu").is_ok());
+        assert!(verify_binary_format(&elf, "x86_64-unknown-linux-gnu").is_err());
+        let mut pe = vec![0; 128];
+        pe[..2].copy_from_slice(b"MZ");
+        pe[60..64].copy_from_slice(&64u32.to_le_bytes());
+        pe[64..70].copy_from_slice(&[80, 69, 0, 0, 100, 134]);
+        assert!(verify_binary_format(&pe, "x86_64-pc-windows-msvc").is_ok());
+        assert!(verify_binary_format(&elf, "x86_64-pc-windows-msvc").is_err());
+        assert!(verify_binary_format(b"", "x86_64-pc-windows-msvc").is_err());
+    }
+    #[test]
+    fn targets_are_native_and_allowlisted() {
+        for target in TARGETS {
+            let version = format!("rustc 1.89\nhost: {target}\n");
+            assert_eq!(selected_target(None, &version).unwrap(), *target);
+            assert_eq!(
+                selected_target(Some(target.to_string()), &version).unwrap(),
+                *target
+            );
+        }
+        assert!(
+            selected_target(
+                Some("aarch64-apple-darwin".into()),
+                "host: x86_64-unknown-linux-gnu"
+            )
+            .is_err()
+        );
+        assert!(selected_target(None, "host: wasm32-unknown-unknown").is_err());
     }
     #[test]
     fn private_path_scan_fails_closed() {
@@ -362,6 +491,7 @@ mod tests {
         }
     }
     #[test]
+    #[cfg(unix)]
     fn inventory_excludes_build_caches_and_rejects_symlinks() {
         let d = tempfile::tempdir().unwrap();
         fs::create_dir_all(d.path().join("tools/xtask/target")).unwrap();

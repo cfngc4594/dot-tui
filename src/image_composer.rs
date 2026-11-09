@@ -115,12 +115,8 @@ impl ImageComposer {
     }
     pub fn stage_explicit_path(&mut self, path: &std::path::Path) -> Result<(), String> {
         use std::io::Read;
-        use std::os::unix::fs::OpenOptionsExt;
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(path)
-            .map_err(|_| "cannot open selected image")?;
+        let file =
+            crate::platform_fs::read(path, false).map_err(|_| "cannot open selected image")?;
         let meta = file
             .metadata()
             .map_err(|_| "cannot inspect selected image")?;

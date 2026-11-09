@@ -4,6 +4,8 @@ mod attachments;
 mod audit_tests;
 mod backend;
 mod clipboard_bridge;
+#[cfg(not(target_os = "macos"))]
+mod clipboard_portable;
 #[cfg(target_os = "macos")]
 mod clipboard_native;
 #[allow(dead_code)]
@@ -36,6 +38,7 @@ mod keyboard_protocol;
 #[cfg(test)]
 mod keyboard_safety_tests;
 mod native_media;
+mod platform_fs;
 #[allow(dead_code)]
 mod prompt_images;
 #[allow(dead_code)]
@@ -2688,10 +2691,9 @@ fn run(args: Args) -> Result<(), String> {
         let path = args
             .auth
             .or_else(|| std::env::var_os("CODEX_HOME").map(|p| PathBuf::from(p).join("auth.json")))
-            .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".codex/auth.json")))
+            .or_else(|| platform_fs::home_dir().map(|p| p.join(".codex/auth.json")))
             .ok_or("Cannot locate login path")?;
         diagnostics::init()?;
-        #[cfg(target_os = "macos")]
         app.clipboard
             .replace(Box::new(clipboard_bridge::SystemClipboard));
         Source::PendingLive(path)
