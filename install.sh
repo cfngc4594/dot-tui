@@ -50,7 +50,17 @@ main() {
             case "$OS_MAJOR" in ''|*[!0-9]*) fail 'Cannot identify macOS version' ;; esac
             [ "$OS_MAJOR" -ge 11 ] || fail 'macOS 11 or newer is required'
             ;;
-        Linux) TARGET=$ARCH-unknown-linux-gnu ;;
+        Linux)
+            TARGET=$ARCH-unknown-linux-gnu
+            LIBC=$(getconf GNU_LIBC_VERSION 2>/dev/null) || fail 'Linux requires glibc 2.39 or newer; musl/unknown libc is unsupported'
+            printf '%s\n' "$LIBC" | grep -Eq '^glibc [0-9]+\.[0-9]+$' || fail 'Cannot identify glibc version; Linux requires glibc 2.39 or newer'
+            LIBC_VERSION=${LIBC#glibc }
+            LIBC_MAJOR=${LIBC_VERSION%%.*}
+            LIBC_MINOR=${LIBC_VERSION#*.}
+            if ! [ "$LIBC_MAJOR" -gt 2 ] && ! { [ "$LIBC_MAJOR" -eq 2 ] && [ "$LIBC_MINOR" -ge 39 ]; }; then
+                fail "Linux requires glibc 2.39 or newer; found $LIBC"
+            fi
+            ;;
         MINGW*|MSYS*|CYGWIN*)
             [ -z "${DOT_TUI_INSTALL_DIR:-}" ] || fail 'On Windows use install.ps1 -InstallDir with an absolute Windows path'
             command -v curl >/dev/null 2>&1 || fail 'curl is required'
@@ -113,6 +123,9 @@ main() {
         /usr/bin/lipo "$STAGED_BIN" -verify_arch "$MACH_ARCH" || fail 'Executable architecture mismatch'
         /usr/bin/codesign --verify --strict "$STAGED_BIN" || fail 'Executable signature validation failed'
     fi
+    # Clap exits on --version before runtime/auth initialization.
+    BINARY_VERSION=$("$STAGED_BIN" --version) || fail 'Executable version check failed; previous installation retained'
+    [ "$BINARY_VERSION" = "dot-tui $VERSION" ] || fail 'Executable version mismatch; previous installation retained'
     STAGED_LICENSES=$(mktemp -d "$DATA_DIR/.v${VERSION}.XXXXXXXX")
     for NAME in LICENSE THIRD_PARTY_NOTICES.md THIRD_PARTY_LICENSES.txt; do
         tar -xOzf "$WORK/$ASSET" "$NAME" > "$STAGED_LICENSES/$NAME" || fail "Missing $NAME"
@@ -144,7 +157,7 @@ main() {
     esac
     printf 'Before running: sign in with official Codex using ChatGPT login and create your dot conversation in the official app.\n'
     printf 'dot-tui reads the existing Codex login; it does not ask for a token or support API-key login.\n'
-    printf 'The installer has not started dot-tui or read your login.\n'
+    printf 'The installer ran only dot-tui --version; it did not open the TUI or read your login.\n'
 }
 
 main "$@"

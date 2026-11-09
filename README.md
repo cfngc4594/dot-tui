@@ -7,11 +7,21 @@
 
 ## Install
 
-The [latest release](https://github.com/cfngc4594/dot-tui/releases/latest) provides a prebuilt macOS arm64 binary for Apple Silicon Macs.
+Native packages target macOS (Apple Silicon/Intel), Linux (arm64/x64, glibc 2.39+), and Windows x64.
+
+macOS, Linux, or Git Bash:
 
 ```sh
 curl -fsSL https://github.com/cfngc4594/dot-tui/releases/latest/download/install.sh | bash
 ```
+
+Windows PowerShell:
+
+```powershell
+irm https://github.com/cfngc4594/dot-tui/releases/latest/download/install.ps1 | iex
+```
+
+Follow the installer’s PATH instructions if needed. See [platform and terminal limits](docs/DISTRIBUTION.md#terminal-and-authentication-limits), including MinTTY and PowerShell policy requirements.
 
 ## Run
 

@@ -71,6 +71,22 @@ function Install-DotTui {
             $stream.Position = 0x3c; $offset = $reader.ReadUInt32(); $stream.Position = $offset
             if ($reader.ReadUInt32() -ne 0x4550 -or $reader.ReadUInt16() -ne 0x8664) { throw 'Not an x86_64 PE executable' }
         } finally { $reader.Dispose() }
+        # Clap handles --version before runtime/auth initialization.
+        $versionInfo = New-Object Diagnostics.ProcessStartInfo
+        $versionInfo.FileName = $exe; $versionInfo.Arguments = '--version'
+        $versionInfo.UseShellExecute = $false
+        $versionInfo.RedirectStandardOutput = $true
+        $versionProcess = [Diagnostics.Process]::Start($versionInfo)
+        try {
+            if (!$versionProcess.WaitForExit(15000)) {
+                $versionProcess.Kill()
+                throw 'Executable version check timed out; previous installation retained'
+            }
+            $reportedVersion = $versionProcess.StandardOutput.ReadToEnd().TrimEnd("`r", "`n")
+            if ($versionProcess.ExitCode -ne 0 -or $reportedVersion -cne "dot-tui $Version") {
+                throw 'Executable version check failed or mismatched; previous installation retained'
+            }
+        } finally { $versionProcess.Dispose() }
         $destination = Join-Path $InstallDir 'dot-tui.exe'
         Assert-PlainPath $InstallDir; Assert-PlainPath $destination
         # Retain notices before replacing the binary. Hash-scoped avoids collisions across platforms.
@@ -86,7 +102,7 @@ function Install-DotTui {
         Write-Host "Installed dot-tui $Version at $destination"
         Write-Host "For this PowerShell session: `$env:PATH = '$($InstallDir.Replace("'","''"));' + `$env:PATH"
         Write-Host 'Then run dot-tui. Add the directory to your user PATH manually for future shells.'
-        Write-Host 'Sign in through official Codex first; installer has not accessed credentials or launched dot-tui.'
+        Write-Host 'Sign in through official Codex first; installer ran only dot-tui --version, without opening the TUI or accessing credentials.'
     } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
 }
 Install-DotTui

@@ -19,7 +19,9 @@ A matrix definition is not evidence that all platforms have built or run.
 Check the relevant CI result before publishing a target. The builder checks that
 its target matches the actual Rust host; it does not silently cross-compile and
 claim native validation. Linux bundles are built on Ubuntu 24.04 and are not
-promised to run on older glibc distributions. WSL installs the Linux binary.
+promised to run on older glibc distributions. The Linux installer requires
+glibc 2.39 or newer, and rejects musl or an unidentifiable libc before downloading.
+WSL installs the Linux binary.
 Windows ARM64 is not currently packaged.
 
 ## Prepare a bundle
@@ -65,8 +67,11 @@ policy, antivirus or quarantine protections.
 The shell installer selects Darwin/Linux or native Windows (Git Bash/MSYS),
 including the official Grok-style Rosetta architecture correction. PowerShell
 uses `install.ps1`. Installers download only versioned GitHub release assets,
-verify SHA256 and version, and stage files before replacement. They never launch
-the app, read login credentials, or install Rust. No user shell profile or
+verify SHA256, version and architecture, and stage files before replacement.
+Before replacing an existing installation, they run only the verified staged
+binary with `--version` and require the expected version. Missing runtime
+libraries or loader failures therefore leave the existing binary untouched.
+They never start an interactive session, read login credentials, or install Rust. No user shell profile or
 persistent PATH is changed automatically; follow the printed PATH instruction
 if the destination is not already on PATH. A piped child shell cannot change
 its parent's PATH. Windows may refuse replacing an executable while it is open;

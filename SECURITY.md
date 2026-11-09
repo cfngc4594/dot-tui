@@ -28,7 +28,7 @@ in process memory; there is no guarantee against memory inspection/crash dumps.
 
 Unix descriptor checks reject non-regular files, wrong ownership, group/other
 permission bits and final symlinks. Parent symlinks/extended ACLs are not audited.
-Windows live auth is refused until ACL handling exists.
+Windows credential reads validate the opened handle, reject reparse points, and require current-user ownership with grants restricted to that user, SYSTEM, or Administrators. New private files use a protected current-user/SYSTEM DACL. Cross-platform CI uses offline fixtures, not real account credentials.
 
 Every explicit send gets a random UUID used for request_id/idempotency_token.
 While it is in flight, duplicate submissions are rejected, but the composer
