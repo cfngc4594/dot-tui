@@ -1,6 +1,6 @@
 # dot-tui: ChatGPT dot terminal client
 
-**dot-tui** is an unofficial terminal user interface (TUI) for chatting with your existing ChatGPT dot on Apple Silicon Macs. It is built with Rust and [Ratatui](https://ratatui.rs/).
+**dot-tui** is an open-source terminal user interface (TUI) for chatting with your ChatGPT dot. It is built with Rust and [Ratatui](https://ratatui.rs/).
 
 - Read conversation history, send messages, and attach images from your terminal.
 - Render replies as Markdown and use `--read-only` to browse without composing.
