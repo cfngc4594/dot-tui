@@ -18,7 +18,10 @@ Credentials go only to fixed HTTPS paths at chatgpt.com:443. TLS checks enabled;
 redirects/proxies and ALL automatic retries disabled. Only GET dot/message lists
 and room-scoped metadata, image upload and message POST are implemented.
 Image downloads use a separate anonymous client, with no account headers,
-no cookies/proxies/redirects, public-address preflight and DNS pinning. No room creation, token
+no cookies/proxies/redirects, public-address preflight and DNS pinning. A generic
+`application/octet-stream` declaration allows bounded inspection, never filename-based
+trust: the original Grok image-byte validator and full bounded decode must succeed.
+Specific image MIME declarations must still match the detected format. No room creation, token
 refresh, account changes, computer authorization or hidden mutation endpoints.
 Credentials, bodies and transcripts are not logged or persisted. Credentials stay
 in process memory; there is no guarantee against memory inspection/crash dumps.
@@ -85,3 +88,8 @@ Enter is a new explicit send. Unknown failures stay visible during background
 refresh. Failure or a late success never overwrites newly typed text. Input
 history is memory-only and is lost on exit, as in the existing client; this
 release does not add a persistent draft system.
+
+The README stable installer URL uses GitHub `releases/latest/download/install.sh`.
+Each published installer retains its own release version, so its archive and checksum
+are resolved from one immutable release even if latest changes during installation.
+Missing releases or checksum mismatches fail before replacing the executable.

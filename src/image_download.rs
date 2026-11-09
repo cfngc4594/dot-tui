@@ -20,7 +20,7 @@ pub fn fetch(t: &mut impl Transport, room: &BoundRoom, file: &str) -> Result<Pas
         .map_err(|e| format!("下载：{e}"))?;
     let (_, _, mime) =
         crate::attachments::dimensions_checked(&bytes).map_err(|e| format!("图片解码：{e}"))?;
-    if mime != meta.mime {
+    if meta.mime != "application/octet-stream" && mime != meta.mime {
         return Err("图片校验：元数据与实际格式不一致".into());
     }
     let mut c = crate::image_composer::ImageComposer::default();
@@ -229,5 +229,75 @@ mod tests {
         let i = fetch(&mut fake, &room, "file-1").unwrap();
         assert_eq!(fake.calls, 2);
         assert_eq!(i.preview_dimensions(), Some((32, 24)));
+    }
+    #[test]
+    fn generic_metadata_requires_real_image_bytes_not_filename() {
+        struct Fake {
+            mime: &'static str,
+            bytes: Vec<u8>,
+        }
+        impl Transport for Fake {
+            fn metadata(&mut self, _: Url) -> Result<serde_json::Value, String> {
+                Ok(
+                    serde_json::json!({"mime_type":self.mime,"name":"image.tiff","image_metadata":null,"download_url":"https://images.example.test/signed"}),
+                )
+            }
+            fn anonymous(&mut self, _: Url) -> Result<Vec<u8>, String> {
+                Ok(self.bytes.clone())
+            }
+        }
+        let d = crate::backend::Dot {
+            id: "d".into(),
+            name: "n".into(),
+            room: Some("r".into()),
+            speakers: vec![],
+        };
+        let room = BoundRoom::from_unique(&[d], "r").unwrap();
+        for format in [image::ImageFormat::Png, image::ImageFormat::Tiff] {
+            let mut out = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::new_rgba8(32, 24)
+                .write_to(&mut out, format)
+                .unwrap();
+            let mut fake = Fake {
+                mime: "application/octet-stream",
+                bytes: out.into_inner(),
+            };
+            assert_eq!(
+                fetch(&mut fake, &room, "f").unwrap().preview_dimensions(),
+                Some((32, 24))
+            );
+        }
+        for bytes in [
+            b"not an image".to_vec(),
+            b"<svg xmlns='http://www.w3.org/2000/svg'></svg>".to_vec(),
+            crate::image_ingress::synthetic()[..20].to_vec(),
+            vec![0; crate::attachments::MAX_FILE_BYTES + 1],
+        ] {
+            assert!(
+                fetch(
+                    &mut Fake {
+                        mime: "application/octet-stream",
+                        bytes
+                    },
+                    &room,
+                    "f"
+                )
+                .is_err()
+            );
+        }
+        // Specific declarations remain strict; octet-stream is not a bypass for other MIME types.
+        for mime in ["image/jpeg", "text/plain", "application/pdf"] {
+            assert!(
+                fetch(
+                    &mut Fake {
+                        mime,
+                        bytes: crate::image_ingress::synthetic()
+                    },
+                    &room,
+                    "f"
+                )
+                .is_err()
+            );
+        }
     }
 }

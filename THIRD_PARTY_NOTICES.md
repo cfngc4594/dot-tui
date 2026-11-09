@@ -416,3 +416,37 @@ The installed Grok reports `1.0.77 (50ca579fa996)`, but that revision is not
 available in the public source repository (GitHub returned ref-not-found).
 These source comparisons use the documented public pinned revision; they do
 not claim byte-identical parity with that unavailable installed revision.
+
+## Image display version boundary and remote readiness
+
+The public Grok repository's latest available revision at this investigation,
+`2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8` (2026-09-29), predates the installed
+Grok `1.0.77 (50ca579fa996)` (2026-11-05). The installed revision could not be
+retrieved from the public repository. We have not obtained its source.
+
+The installed official `~/.grok/CHANGELOG.md`, version 1.0.71 (2026-10-26),
+explicitly documents green prompt image chips matching sent transcript images,
+and sent-image previews when hovering transcript chips. Absence of those
+features from the older public UserPromptBlock is not evidence that they are
+Dot-only inventions. The attempted cleanup on that basis was withdrawn:
+existing green chips, sent-image hover, and compact media fallback are retained.
+This is a documented behavior comparison, not a claim of copying unavailable
+1.0.77 implementation or byte-identical parity.
+
+The older public source also has multiple distinct interaction paths:
+`views/prompt_widget/mod.rs:2603–2615` selects prompt previews;
+`app/agent_view/prompt.rs:463–484` opens the internal ImageViewer for an image
+chip interaction; `app/agent_view/media.rs:486–496` opens tool-history media
+natively. The latter must not be generalized to every Grok image interaction,
+or used to contradict observed behavior of the newer installed version.
+No native-open route change is part of this correction.
+
+`src/upstream_media.rs::media_name_display` copies character-boundary middle
+truncation from public `scrollback/blocks/tool/other.rs:182–205`. Dot supplies a
+remote filename instead of a decoded local path. Its existing compact title
+and Open layout is retained, not claimed to reproduce that old tool block's
+full header/path/spacer layout. The remote readiness adapter rejects errors
+or either zero dimension before reserving pixel rows. This preserves the
+image decoding/error fixes without assuming that a large valid inline image
+area is erroneous. Remote file IDs and download metadata remain Dot backend
+adaptations, not Grok ACP tool events.

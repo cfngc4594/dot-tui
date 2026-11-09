@@ -388,8 +388,8 @@ impl ImageComposer {
 pub(crate) fn chip_line(label: String) -> Line<'static> {
     let theme = Theme::current();
     let bracket = Style::default().fg(theme.paste_dim).bg(theme.paste_bg);
-    // User-requested image accent from GrokNight's original success/green
-    // palette. Keep paste_dim brackets and the original chip construction.
+    // Green image chips are documented in installed Grok 1.0.71+; the public
+    // pinned source predates that change. Retain the existing green adaptation.
     let text = Style::default().fg(theme.accent_success).bg(theme.paste_bg);
     Line::from(vec![
         Span::styled("[", bracket),

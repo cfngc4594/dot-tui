@@ -138,13 +138,17 @@ pub fn metadata_endpoint(room: &BoundRoom, file_id: &str) -> Result<Url, &'stati
     endpoint(&room.room, Some(file_id))
 }
 pub fn parse_metadata(value: &Value) -> Result<Metadata, &'static str> {
+    // Dot human uploads may omit a specific MIME. This is permission to
+    // inspect bounded bytes, not proof of image content; fetch validates them
+    // with the original Grok validator and a full bounded pixel decode.
     let mime = value
         .get("mime_type")
         .and_then(Value::as_str)
         .filter(|s| {
             matches!(
                 *s,
-                "image/png"
+                "application/octet-stream"
+                    | "image/png"
                     | "image/jpeg"
                     | "image/webp"
                     | "image/gif"

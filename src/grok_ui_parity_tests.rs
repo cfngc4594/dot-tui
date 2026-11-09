@@ -159,3 +159,12 @@ fn ctrl_h_backspaces_and_ctrl_u_kills_only_current_line_without_history_requests
     assert_eq!(a.draft(), "first\n");
     assert!(rx.try_recv().is_err());
 }
+
+#[test]
+fn input_image_chip_retains_documented_current_grok_green() {
+    let line = crate::image_composer::chip_line("Image #1".into());
+    let theme = crate::theme::Theme::current();
+    assert_eq!(line.spans[0].style.fg, Some(theme.paste_dim));
+    assert_eq!(line.spans[1].style.fg, Some(theme.accent_success));
+    assert_eq!(line.spans[1].style.bg, Some(theme.paste_bg));
+}

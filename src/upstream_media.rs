@@ -66,6 +66,31 @@ pub fn reserved_rows(info: &Info, width: u16) -> u16 {
     )
     .1
 }
+// Original OtherToolCallBlock::output middle truncation, tool/other.rs
+// 182–205 at 2bdd1d6. Dot metadata supplies a filename rather than a local path.
+fn media_name_display(path_str: String, max_w: usize) -> String {
+    if path_str.chars().count() > max_w {
+        let keep = max_w.saturating_sub(3) / 2;
+        let end_keep = max_w.saturating_sub(3) - keep;
+        let chars: Vec<char> = path_str.chars().collect();
+        match (
+            chars.get(..keep),
+            chars
+                .len()
+                .checked_sub(end_keep)
+                .and_then(|i| chars.get(i..)),
+        ) {
+            (Some(head), Some(tail)) => format!(
+                "{}...{}",
+                head.iter().collect::<String>(),
+                tail.iter().collect::<String>()
+            ),
+            _ => path_str,
+        }
+    } else {
+        path_str
+    }
+}
 pub fn history_lines(
     file: &str,
     info: Option<&Info>,
@@ -73,22 +98,29 @@ pub fn history_lines(
     inline: bool,
 ) -> (Vec<Line<'static>>, u16, Option<u16>) {
     let (mut lines, _) = attachment_lines(0, width);
+    // Retain Dot's existing compact presentation. Public Grok 2bdd1d6 is
+    // older than installed 1.0.77 and is not evidence for removing its UI.
     lines[0] = Line::styled(
-        info.map_or("Image".into(), |i| i.name.clone()),
+        media_name_display(
+            info.map_or("Image".into(), |i| i.name.clone()),
+            width as usize,
+        ),
         Style::default()
             .fg(Color::Rgb(225, 225, 225))
             .add_modifier(Modifier::BOLD),
     );
-    // Progress and error details belong to the single top-right status surface.
-    // Keep the media action; failed/unprepared media reserves no blank image box.
     lines[1] = Line::from("");
-    if !inline || info.is_none_or(|i| i.dimensions == (0, 0)) {
+    // Dot receives remote readiness/error metadata instead of Grok's local
+    // decoded InlineMediaInfo. Never reserve an image region until both
+    // dimensions are valid and the decode/download state is successful.
+    let ready = info.filter(|i| i.error.is_none() && i.dimensions.0 > 0 && i.dimensions.1 > 0);
+    if !inline || ready.is_none() {
         let title = lines.remove(0);
         let open = lines.remove(2);
         return (vec![title, open], 1, None);
     }
     let _ = file; // Remote identifiers are never shown as user-facing filenames.
-    if inline && let Some(info) = info.filter(|i| i.dimensions.0 > 0 && i.dimensions.1 > 0) {
+    if inline && let Some(info) = ready {
         let rows = reserved_rows(info, width);
         let button = lines.remove(3);
         lines.truncate(3);
@@ -98,4 +130,68 @@ pub fn history_lines(
         return (lines, rows + 4, Some(rows));
     }
     (lines, 3, None)
+}
+
+#[cfg(test)]
+mod image_fallback_tests {
+    use super::*;
+    #[test]
+    fn long_media_names_follow_original_middle_truncation() {
+        assert_eq!(
+            media_name_display("1234567890abcdefghij.png".into(), 13),
+            "12345...j.png"
+        );
+        assert_eq!(
+            media_name_display("中文文件名称很长的图.png".into(), 9),
+            "中文文...png"
+        );
+        assert_eq!(media_name_display("image.png".into(), 80), "image.png");
+    }
+    #[test]
+    fn fallback_retains_existing_compact_title_and_open() {
+        let info = Info {
+            name: "photo.png".into(),
+            dimensions: (100, 100),
+            error: None,
+        };
+        let (lines, button, rows) = history_lines("remote-id", Some(&info), 80, false);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].to_string(), "photo.png");
+        assert!(lines[0].style.add_modifier.contains(Modifier::BOLD));
+        assert!(
+            lines[1]
+                .to_string()
+                .ends_with(media_open_button_label(false))
+        );
+        assert_eq!(button, 1);
+        assert_eq!(rows, None);
+    }
+    #[test]
+    fn unavailable_or_failed_remote_images_never_reserve_blank_pixels() {
+        for (dimensions, error) in [
+            ((0, 0), None),
+            ((0, 100), None),
+            ((100, 0), None),
+            ((100, 100), Some("decode failed".into())),
+        ] {
+            let info = Info {
+                name: "image.png".into(),
+                dimensions,
+                error,
+            };
+            let (lines, button, rows) = history_lines("file", Some(&info), 80, true);
+            assert_eq!(lines.len(), 2);
+            assert_eq!(button, 1);
+            assert_eq!(rows, None);
+        }
+        let info = Info {
+            name: "image.png".into(),
+            dimensions: (100, 100),
+            error: None,
+        };
+        let (lines, _, rows) = history_lines("file", Some(&info), 80, false);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(rows, None);
+        assert!(history_lines("file", Some(&info), 80, true).2.is_some());
+    }
 }
