@@ -1,5 +1,5 @@
 # dot-tui native Windows installer. Does not modify PATH, execution policy or login.
-param([string]$Version = '0.8.6', [string]$InstallDir = "$env:LOCALAPPDATA\dot-tui\bin")
+param([string]$Version = '0.8.6', [string]$InstallDir = "$env:USERPROFILE\.local\bin")
 $ErrorActionPreference = 'Stop'
 function Assert-PlainPath([string]$Path) {
     $current = [IO.Path]::GetFullPath($Path)
@@ -10,6 +10,52 @@ function Assert-PlainPath([string]$Path) {
         }
         $parent = [IO.Path]::GetDirectoryName($current)
         if ($parent -eq $current) { break }; $current = $parent
+    }
+}
+# Only the current user, SYSTEM and Administrators may own or mutate install data.
+# This inspects ACLs; it never changes them, including inherited permissions.
+function Assert-TrustedAcl([Security.AccessControl.FileSystemSecurity]$Acl) {
+    $trusted = @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value, 'S-1-5-18', 'S-1-5-32-544')
+    $owner = $Acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if (!$owner -or $owner -notin $trusted) { throw 'Install directory has an untrusted owner' }
+    $mutating = [Security.AccessControl.FileSystemRights]::Write -bor
+        [Security.AccessControl.FileSystemRights]::Delete -bor
+        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+        [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [Security.AccessControl.FileSystemRights]::TakeOwnership
+    foreach ($rule in $Acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+        # SID translation failures throw. Never silently skip an unrecognized principal.
+        $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        if (!$sid) { throw 'Cannot resolve directory ACL principal' }
+        if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+            $sid -notin $trusted -and ($rule.FileSystemRights -band $mutating)) {
+            throw 'Install directory permits an untrusted principal to modify or delete it'
+        }
+    }
+}
+function Assert-InstallDirectory([string]$Path) {
+    if (!$env:USERPROFILE -or ![IO.Path]::IsPathRooted($env:USERPROFILE)) { throw 'USERPROFILE must be an absolute path' }
+    if (![IO.Path]::IsPathRooted($Path)) { throw 'Install directory must be absolute' }
+    $root = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\', '/')
+    $full = [IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
+    # Windows can alias trailing dots/spaces and NTFS alternate streams; reject them.
+    foreach ($part in ($full -split '[\\/]')) {
+        if ($part -match '[. ]$' -or ($part.Contains(':') -and $part -notmatch '^[A-Za-z]:$')) { throw 'Ambiguous Windows install path' }
+    }
+    if (!$full.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Install directory must be a descendant of USERPROFILE'
+    }
+    Assert-PlainPath $full
+    if (!(Test-Path -LiteralPath $root -PathType Container)) { throw 'USERPROFILE must exist as a directory' }
+    $current = $full
+    while ($true) {
+        if (Test-Path -LiteralPath $current) {
+            if (!(Test-Path -LiteralPath $current -PathType Container)) { throw 'Install path contains a non-directory' }
+            Assert-TrustedAcl (Get-Acl -LiteralPath $current)
+        }
+        if ($current.Equals($root, [StringComparison]::OrdinalIgnoreCase)) { break }
+        $current = [IO.Path]::GetDirectoryName($current)
+        if (!$current) { throw 'Install path escaped USERPROFILE' }
     }
 }
 function Fetch([string]$Url, [string]$Path) {
@@ -40,17 +86,13 @@ function Install-DotTui {
     if ($InstallDir.Contains('"')) { throw 'Invalid install path' }
     Get-Command curl.exe, tar.exe -ErrorAction Stop | Out-Null
     $InstallDir = [IO.Path]::GetFullPath($InstallDir)
-    Assert-PlainPath $InstallDir
+    Assert-InstallDirectory $InstallDir
     [IO.Directory]::CreateDirectory($InstallDir) | Out-Null
-    # Reject broad write ACLs; never change permissions or require Administrator.
-    $acl = Get-Acl -LiteralPath $InstallDir
-    foreach ($rule in $acl.Access) {
-        $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
-        if ($sid -in @('S-1-1-0','S-1-5-11','S-1-5-32-545') -and $rule.AccessControlType -eq 'Allow' -and ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write)) { throw 'Install directory permits other users to write; choose a private directory' }
-    }
+    Assert-InstallDirectory $InstallDir
     $work = Join-Path $InstallDir ('.stage-' + [Guid]::NewGuid().ToString('N'))
     [IO.Directory]::CreateDirectory($work) | Out-Null
     try {
+        Assert-InstallDirectory $work
         $asset = "dot-tui-v$Version-x86_64-pc-windows-msvc.tar.gz"
         $base = "https://github.com/cfngc4594/dot-tui/releases/download/v$Version"
         Fetch "$base/SHA256SUMS" (Join-Path $work 'SHA256SUMS')
@@ -88,16 +130,24 @@ function Install-DotTui {
             }
         } finally { $versionProcess.Dispose() }
         $destination = Join-Path $InstallDir 'dot-tui.exe'
-        Assert-PlainPath $InstallDir; Assert-PlainPath $destination
+        Assert-InstallDirectory $InstallDir; Assert-PlainPath $destination
         # Retain notices before replacing the binary. Hash-scoped avoids collisions across platforms.
         $licenses = Join-Path $InstallDir "licenses-v$Version-$expected"
-        Assert-PlainPath $licenses
+        Assert-InstallDirectory $licenses
         [IO.Directory]::CreateDirectory($licenses) | Out-Null
+        Assert-InstallDirectory $licenses
         foreach ($name in @('LICENSE','THIRD_PARTY_NOTICES.md','THIRD_PARTY_LICENSES.txt')) {
             $out = Join-Path $licenses $name; Assert-PlainPath $out
+            if (Test-Path -LiteralPath $out) { Assert-TrustedAcl (Get-Acl -LiteralPath $out) }
             [IO.File]::Copy((Join-Path $work $name), $out, $true)
         }
-        if (Test-Path -LiteralPath $destination) { [IO.File]::Replace($exe, $destination, $null) }
+        Assert-InstallDirectory $InstallDir
+        Assert-PlainPath $destination
+        if (Test-Path -LiteralPath $destination) {
+            # File.Replace preserves the old file ACL; validate it as well as its directory.
+            Assert-TrustedAcl (Get-Acl -LiteralPath $destination)
+            [IO.File]::Replace($exe, $destination, $null)
+        }
         else { [IO.File]::Move($exe, $destination) }
         Write-Host "Installed dot-tui $Version at $destination"
         Write-Host "For this PowerShell session: `$env:PATH = '$($InstallDir.Replace("'","''"));' + `$env:PATH"
