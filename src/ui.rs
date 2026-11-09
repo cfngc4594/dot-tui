@@ -644,7 +644,7 @@ pub(super) fn draw(f: &mut Frame, app: &App) {
     let geometry = layout(app, area);
     let name = "dot-tui";
     f.render_widget(
-        Paragraph::new(name).style(Style::default().fg(upstream::TEXT)),
+        Paragraph::new(name).style(upstream_shortcuts::key_style()),
         Rect::new(
             geometry.top.x,
             geometry.top.y,

@@ -56,7 +56,7 @@ fn paint_hint_keys(
 // Actual GrokNight fields: bg_base=BG_STORM, text_secondary=FG_DARK,
 // gray=COMMENT from pager-render/src/theme/groknight.rs. Theme::muted()
 // returns explicit gray without DIM for RGB themes (tokyonight.rs).
-fn key_style() -> Style {
+pub(super) fn key_style() -> Style {
     Style::default()
         .fg(Color::Rgb(200, 200, 200))
         .bg(Color::Rgb(20, 20, 20))

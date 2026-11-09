@@ -132,12 +132,12 @@
     "已读取 dot 列表"
   ],
   [
-    "No messages returned on this page; history end is unconfirmed. Select Retry history or press Ctrl+H.",
-    "本页未返回消息；未确认历史已结束，点击底部“重试历史”或按 Ctrl+H 重试"
+    "No messages returned on this page; history end is unconfirmed. Select Retry history.",
+    "本页未返回消息；未确认历史已结束，点击底部“重试历史”重试"
   ],
   [
-    "Paging cursor did not advance; automatic paging paused. Select Retry history or press Ctrl+H. Earlier messages may still exist.",
-    "分页游标未推进；已暂停自动翻页，点击底部“重试历史”或按 Ctrl+H 重试；不代表没有更早消息"
+    "Paging cursor did not advance; automatic paging paused. Select Retry history. Earlier messages may still exist.",
+    "分页游标未推进；已暂停自动翻页，点击底部“重试历史”重试；不代表没有更早消息"
   ],
   [
     "{0}Loaded {1} messages on this page",
@@ -156,8 +156,8 @@
     "已读取 {0} 条；只代表当前分页。向上滚动读取更早消息。"
   ],
   [
-    "Earlier history failed: {0}; select Retry history or press Ctrl+H. Background updates continue.",
-    "加载更早失败：{0}；点击底部“重试历史”或按 Ctrl+H 重试；后台更新继续"
+    "Earlier history failed: {0}; select Retry history. Background updates continue.",
+    "加载更早失败：{0}；点击底部“重试历史”重试；后台更新继续"
   ],
   [
     "Service accepted the message; dot may still be working",

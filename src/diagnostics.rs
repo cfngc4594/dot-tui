@@ -225,7 +225,7 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
         assert_eq!(v["ctx"]["http_status"], 413);
         assert_eq!(v["lvl"], "warn");
-        assert_eq!(v["ver"], "0.8.1");
+        assert_eq!(v["ver"], env!("CARGO_PKG_VERSION"));
         assert!(v["pid"].is_number());
         assert!(v.get("sid").is_none());
         assert!(v["ctx"]["request_id"].is_null());

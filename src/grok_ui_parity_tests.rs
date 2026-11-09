@@ -62,3 +62,100 @@ fn wheel_in_prompt_uses_original_scroll_override_without_moving_history_or_caret
         "editing resumes caret following"
     );
 }
+
+#[test]
+fn held_backspace_and_delete_repeats_use_the_original_editor() {
+    let (tx, _) = mpsc::channel();
+    for code in [KeyCode::Backspace, KeyCode::Delete] {
+        let mut a = App::demo();
+        a.append("abcdefgh");
+        if code == KeyCode::Delete {
+            a.draft.set_cursor(0);
+        }
+        for kind in [
+            KeyEventKind::Press,
+            KeyEventKind::Repeat,
+            KeyEventKind::Repeat,
+        ] {
+            key(
+                &mut a,
+                event::KeyEvent::new_with_kind(code, KeyModifiers::NONE, kind),
+                &tx,
+            );
+        }
+        assert_eq!(
+            a.draft(),
+            if code == KeyCode::Delete {
+                "defgh"
+            } else {
+                "abcde"
+            }
+        );
+        key(
+            &mut a,
+            event::KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Release),
+            &tx,
+        );
+        assert_eq!(a.draft().len(), 5);
+    }
+}
+#[test]
+fn ctrl_a_keeps_original_line_start_not_select_all() {
+    let (tx, _) = mpsc::channel();
+    let mut a = App::demo();
+    a.append("first\nsecond");
+    key(
+        &mut a,
+        event::KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL),
+        &tx,
+    );
+    assert_eq!(a.draft.cursor(), 6);
+    assert_eq!(a.draft.selection_range(), None);
+}
+#[test]
+fn composer_scrollbar_has_original_gray_palette_and_padding() {
+    let a = App::demo();
+    assert_eq!(a.draft.scrollbar_padding, 1);
+    assert_eq!(
+        a.draft.scrollbar_track_style.bg,
+        Some(Color::Rgb(20, 20, 20))
+    );
+    assert_eq!(
+        a.draft.scrollbar_thumb_style.fg,
+        Some(Color::Rgb(60, 60, 65))
+    );
+    assert_eq!(
+        a.draft.scrollbar_thumb_style.bg,
+        Some(Color::Rgb(20, 20, 20))
+    );
+}
+
+#[test]
+fn ctrl_h_backspaces_and_ctrl_u_kills_only_current_line_without_history_requests() {
+    let (tx, rx) = mpsc::channel();
+    let mut a = App::demo();
+    a.append("first\nsecond");
+    key(
+        &mut a,
+        event::KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL),
+        &tx,
+    );
+    assert_eq!(a.draft(), "first\nsecon");
+    key(
+        &mut a,
+        event::KeyEvent::new_with_kind(
+            KeyCode::Char('h'),
+            KeyModifiers::CONTROL,
+            KeyEventKind::Repeat,
+        ),
+        &tx,
+    );
+    assert_eq!(a.draft(), "first\nseco");
+    key(
+        &mut a,
+        event::KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        &tx,
+    );
+    assert_eq!(a.draft(), "first\n");
+    assert!(rx.try_recv().is_err());
+}

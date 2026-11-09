@@ -397,3 +397,22 @@ checks cover hidden fences, highlighting, wrapping, and preserving original
 spans/background through Dot's timestamp/gutter wrapper. These checks do not
 claim parity with Grok's agent/tool-specific code viewers or all interactive
 code-block actions, which are not part of this message-rendering adapter.
+
+## Prompt initialization and editing-key follow-up
+
+The composer now copies the missing scrollbar initialization from pinned
+Grok `views/prompt_widget/mod.rs:711–716`: background `bg_base`, thumb
+`selection_border`, and one-column padding. `App::new` constructs the real
+ImageComposer rather than replacing its initialized textarea with a generic
+TextArea. The fixed GrokNight selection-border color is `(60,60,65)`.
+The Ghostty-only Cmd+A gate and selection/caret operations follow the same
+file's `cmd_a_select_all_supported` and `handle_key:1872–1881`. Other terminal
+brands keep their own Cmd+A behavior. Ctrl+A remains the unchanged original
+textarea line-start command. Dot's conflicting Ctrl+H history and Ctrl+U
+whole-draft clear shortcuts were removed so the original backspace and
+kill-to-line-start commands (including repeated key events) can run.
+Dot still supplies terminal-brand detection and its focus/modal routing.
+The installed Grok reports `1.0.77 (50ca579fa996)`, but that revision is not
+available in the public source repository (GitHub returned ref-not-found).
+These source comparisons use the documented public pinned revision; they do
+not claim byte-identical parity with that unavailable installed revision.

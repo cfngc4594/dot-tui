@@ -3,6 +3,7 @@ use ratatui::style::{Color, Style};
 #[allow(dead_code)]
 pub struct Theme {
     pub bg_base: Color,
+    pub selection_border: Color,
     pub bg_dark: Color,
     pub bg_light: Color,
     pub bg_hover: Color,
@@ -24,6 +25,7 @@ impl Theme {
     pub fn current() -> Self {
         Self {
             bg_base: Color::Rgb(20, 20, 20),
+            selection_border: Color::Rgb(60, 60, 65),
             bg_dark: Color::Rgb(28, 28, 28),
             bg_light: Color::Rgb(36, 36, 36),
             bg_hover: Color::Rgb(44, 44, 44),

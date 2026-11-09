@@ -241,7 +241,7 @@ struct App {
 impl App {
     fn new() -> Self {
         let clipboard = clipboard_bridge::Clipboard::default();
-        let mut draft = xai_ratatui_textarea::TextArea::new();
+        let mut draft = image_composer::ImageComposer::default();
         draft.set_clipboard_provider(clipboard.provider());
         Self {
             dots: Vec::new(),
@@ -261,7 +261,7 @@ impl App {
             fold_anchor: None,
             timeline_area: std::cell::Cell::new(Rect::default()),
             enable_send: true,
-            draft: draft.into(),
+            draft,
             image_loading: 0,
             image_stage_tx: None,
             paste_feedback: None,
@@ -1130,9 +1130,9 @@ impl App {
                         if stalled && (older || initial) {
                             self.older_failed = true;
                             self.status = if page.raw_count == 0 {
-                                "本页未返回消息；未确认历史已结束，点击底部“重试历史”或按 Ctrl+H 重试".into()
+                                "本页未返回消息；未确认历史已结束，点击底部“重试历史”重试".into()
                             } else {
-                                "分页游标未推进；已暂停自动翻页，点击底部“重试历史”或按 Ctrl+H 重试；不代表没有更早消息".into()
+                                "分页游标未推进；已暂停自动翻页，点击底部“重试历史”重试；不代表没有更早消息".into()
                             };
                             self.older_error = Some(self.status.clone());
                             self.last_result = self.status.clone();
@@ -1202,9 +1202,8 @@ impl App {
                     Err(e) => {
                         self.older_failed |= older;
                         if older {
-                            self.status = format!(
-                                "加载更早失败：{e}；点击底部“重试历史”或按 Ctrl+H 重试；后台更新继续"
-                            );
+                            self.status =
+                                format!("加载更早失败：{e}；点击底部“重试历史”重试；后台更新继续");
                             self.older_error = Some(self.status.clone());
                             self.last_result = self.status.clone();
                         } else {
@@ -2361,10 +2360,8 @@ fn key(app: &mut App, k: event::KeyEvent, tx: &mpsc::Sender<Job>) -> bool {
                 app.draft
                     .set_cursor(if k.code == KeyCode::Home { 0 } else { end });
             }
-            KeyCode::Char('h') => request(app, tx, true),
-            KeyCode::Char('u') if app.can_edit() => {
-                app.reset_draft();
-            }
+            // Ctrl+H and Ctrl+U belong to the original textarea (backspace
+            // and kill-to-line-start), not Dot history/clear shortcuts.
             _ => app.input(k),
         }
         return false;

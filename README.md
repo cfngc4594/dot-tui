@@ -7,7 +7,7 @@ Requires an Apple Silicon Mac running macOS 11+, an existing Codex ChatGPT login
 ## Install
 
 ```sh
-curl -fsSL https://github.com/cfngc4594/dot-tui/releases/download/v0.8.1/install.sh | bash
+curl -fsSL https://github.com/cfngc4594/dot-tui/releases/download/v0.8.2/install.sh | bash
 ```
 
 ## Run

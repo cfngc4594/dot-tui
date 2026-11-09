@@ -406,3 +406,19 @@ fn fenced_code_keeps_original_renderer_spans_in_history() {
         );
     }
 }
+
+#[test]
+fn lowercase_title_reuses_footer_key_style() {
+    let app = App::demo();
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal.draw(|f| draw(f, &app)).unwrap();
+    let area = Rect::new(0, 0, 100, 30);
+    let top = layout(&app, area).top;
+    let expected = upstream_shortcuts::key_style();
+    for (index, letter) in "dot-tui".chars().enumerate() {
+        let cell = &terminal.backend().buffer()[(top.x + index as u16, top.y)];
+        assert_eq!(cell.symbol(), letter.to_string());
+        assert_eq!(cell.fg, expected.fg.unwrap());
+        assert!(cell.modifier.contains(Modifier::BOLD));
+    }
+}

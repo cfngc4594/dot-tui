@@ -10,6 +10,7 @@ const KIND_IMAGE: ElementKind = ElementKind(3);
 const PROMPT_IMAGES_TRACING_TARGET: &str = "dot_tui::prompt_images";
 pub struct ImageComposer {
     pub textarea: TextArea,
+    cmd_a_select_all_enabled: bool,
     pub images: Vec<PastedImage>,
     image_undo_stash: Vec<PastedImage>,
     image_counter: usize,
@@ -18,8 +19,21 @@ pub struct ImageComposer {
 }
 impl Default for ImageComposer {
     fn default() -> Self {
+        // Original PromptWidget::new_with_cwd (711–716): TextArea defaults
+        // are generic blue, not the Grok prompt's fixed-theme gray scrollbar.
+        let theme = Theme::current();
+        let mut textarea = TextArea::new();
+        textarea.scrollbar_track_style = Style::default().bg(theme.bg_base);
+        textarea.scrollbar_thumb_style = Style::default()
+            .fg(theme.selection_border)
+            .bg(theme.bg_base);
+        textarea.scrollbar_padding = 1;
         Self {
-            textarea: TextArea::new(),
+            textarea,
+            cmd_a_select_all_enabled: matches!(
+                crate::terminal::terminal_context().brand,
+                crate::terminal::TerminalName::Ghostty
+            ),
             images: vec![],
             image_undo_stash: vec![],
             image_counter: 0,
@@ -37,6 +51,20 @@ impl ImageComposer {
     }
     pub fn handle_key(&mut self, key: crossterm::event::KeyEvent) {
         self.begin_interaction();
+        // Original PromptWidget::handle_key (1872–1881): only Ghostty owns
+        // Cmd+A here. Ctrl+A remains the original textarea line-start binding.
+        if self.cmd_a_select_all_enabled
+            && key.code == crossterm::event::KeyCode::Char('a')
+            && key.modifiers == crossterm::event::KeyModifiers::SUPER
+        {
+            let len = self.textarea.text().len();
+            if len == 0 {
+                return;
+            }
+            self.textarea.set_selection(0, len);
+            self.textarea.set_cursor(len);
+            return;
+        }
         self.textarea.input(key);
     }
     /// Retains upstream textarea click snapping and PromptWidget hover events.
@@ -592,5 +620,33 @@ mod tests {
         assert_eq!(c.textarea.text(), "[Image #1] ");
         assert_eq!(std::fs::read(&path).unwrap(), bytes.as_ref());
         std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod prompt_binding_parity_tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    #[test]
+    fn cmd_a_is_select_all_only_for_the_original_ghostty_gate() {
+        for enabled in [false, true] {
+            let mut c = ImageComposer::default();
+            c.cmd_a_select_all_enabled = enabled;
+            c.insert_str("first\n中文");
+            c.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::SUPER));
+            assert_eq!(
+                c.selection_range(),
+                if enabled {
+                    Some(0..c.text().len())
+                } else {
+                    None
+                }
+            );
+            assert_eq!(c.text(), "first\n中文");
+            if enabled {
+                c.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+                assert!(c.text().is_empty());
+            }
+        }
     }
 }
