@@ -1,14 +1,47 @@
-name: Prepare native release bundles
+name: Build and release
 
-# Manual preparation only. No release publication or repository writes.
 'on':
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  # Optional build-only rerun. Publishing requires a version-tag push.
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  validate-tag:
+    outputs:
+      commit: ${{ steps.validate.outputs.commit }}
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a matching version on main
+        id: validate
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor HEAD origin/main
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          rustup toolchain install 1.89.0 --profile minimal
+          cargo +1.89.0 run --manifest-path tools/xtask/Cargo.toml --locked -- check-release-tag "$RELEASE_TAG"
+
   build:
+    needs: [validate-tag]
+    if: ${{ !cancelled() && (needs.validate-tag.result == 'success' || needs.validate-tag.result == 'skipped') }}
     strategy:
       fail-fast: false
       matrix:
@@ -54,7 +87,7 @@ jobs:
       - name: Test release tooling
         run: cargo test --manifest-path tools/xtask/Cargo.toml --locked
       - name: Build native bundle without running the app or installer
-        run: cargo run --manifest-path tools/xtask/Cargo.toml --locked -- build-release --target '${{ matrix.target }}'
+        run: cargo run --manifest-path tools/xtask/Cargo.toml --locked -- build-release --target '${{ matrix.target }}' --output dist/bundle
       - name: Verify Unix installer in an isolated home using only local bundle
         if: runner.os != 'Windows'
         run: |
@@ -108,6 +141,83 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dot-tui-${{ matrix.target }}
-          path: dist/
+          path: dist/bundle/
           if-no-files-found: error
           retention-days: 14
+
+  assemble:
+    needs: [build]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: dot-tui-*
+          path: artifacts
+      - name: Verify all five bundles and combine release assets
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.89.0 --profile minimal
+          cargo +1.89.0 run --manifest-path tools/xtask/Cargo.toml --locked -- assemble-release artifacts release
+          (cd release && sha256sum --check SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-release
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [validate-tag, assemble]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Only this job can write. It does not check out or execute repository code.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: verified-release
+          path: release
+      - name: Publish complete GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EXPECTED_COMMIT: ${{ needs.validate-tag.outputs.commit }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          (cd release && sha256sum --check SHA256SUMS)
+          verify_tag() {
+            actual_commit=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
+            if [ "$actual_commit" != "$EXPECTED_COMMIT" ]; then
+              echo "Release tag moved after validation; refusing to publish." >&2
+              exit 1
+            fi
+          }
+          verify_tag
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > existing-release; then
+            if [ "$(cat existing-release)" != true ]; then
+              echo "Refusing to overwrite an already published release." >&2
+              exit 1
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "dot-tui ${RELEASE_TAG#v}" --generate-notes
+          fi
+          for asset in release/*; do basename "$asset"; done | LC_ALL=C sort > expected-assets
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | LC_ALL=C sort > existing-assets
+          if [ -n "$(LC_ALL=C comm -13 expected-assets existing-assets)" ]; then
+            echo "Draft has unexpected assets; refusing to publish it." >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" release/* --clobber
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | LC_ALL=C sort > uploaded-assets
+          diff -u expected-assets uploaded-assets
+          verify_tag
+          gh release edit "$RELEASE_TAG" --draft=false

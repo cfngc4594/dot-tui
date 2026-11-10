@@ -2,6 +2,7 @@
 mod build;
 mod licenses;
 mod publish;
+mod release;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use sha2::{Digest, Sha256};
@@ -25,6 +26,15 @@ enum Task {
         target: Option<String>,
         #[arg(long)]
         offline: bool,
+    },
+    /// Check that a release tag matches the package and both installers.
+    CheckReleaseTag { tag: String },
+    /// Verify and combine all native bundles locally; never upload anything.
+    AssembleRelease {
+        input: PathBuf,
+        output: PathBuf,
+        #[arg(long)]
+        tag: Option<String>,
     },
     /// Collect verbatim license texts from target-filtered Cargo metadata JSON.
     CollectLicenses {
@@ -75,6 +85,10 @@ fn main() -> Result<()> {
             offline,
             target,
         } => build::build(&root(), output, offline, target),
+        Task::CheckReleaseTag { tag } => release::check_tag(&root(), &tag).map(|_| ()),
+        Task::AssembleRelease { input, output, tag } => {
+            release::assemble(&root(), &input, &output, tag.as_deref())
+        }
         Task::CollectLicenses {
             metadata,
             output,

@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
-const TARGETS: &[&str] = &[
+pub(crate) const TARGETS: &[&str] = &[
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
     "x86_64-unknown-linux-gnu",
@@ -75,7 +75,7 @@ fn scan(dir: &Path, root: &Path, names: &mut BTreeSet<String>) -> Result<()> {
     }
     Ok(())
 }
-fn source_hashes(root: &Path) -> Result<BTreeMap<String, String>> {
+pub(crate) fn source_hashes(root: &Path) -> Result<BTreeMap<String, String>> {
     let mut names: BTreeSet<String> = ROOT_FILES.iter().map(|s| s.to_string()).collect();
     for folder in ["src", "vendor", "licenses", "tools", "docs", ".github"] {
         scan(&root.join(folder), root, &mut names)?;
@@ -93,7 +93,9 @@ fn source_hashes(root: &Path) -> Result<BTreeMap<String, String>> {
     }
     Ok(hashes)
 }
-fn remap(root: &Path, target: &str) -> Result<(BTreeMap<String, String>, Vec<Vec<u8>>)> {
+type RemappedEnvironment = (BTreeMap<String, String>, Vec<Vec<u8>>);
+
+fn remap(root: &Path, target: &str) -> Result<RemappedEnvironment> {
     let mut vars: BTreeMap<String, String> = env::vars().collect();
     if target.ends_with("apple-darwin") {
         vars.insert("MACOSX_DEPLOYMENT_TARGET".into(), "11.0".into());
@@ -265,7 +267,9 @@ fn validate_output(root: &Path, output: &Path) -> Result<()> {
 }
 fn installer_version_matches(bytes: &[u8], version: &str) -> bool {
     let expected = format!("DEFAULT_VERSION={version}");
-    String::from_utf8_lossy(bytes).lines().any(|line| line.trim() == expected)
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .any(|line| line.trim() == expected)
 }
 
 pub fn build(
@@ -427,9 +431,18 @@ mod tests {
     use super::*;
     #[test]
     fn installer_version_accepts_lf_and_crlf() {
-        assert!(installer_version_matches(b"    DEFAULT_VERSION=0.8.6\n", "0.8.6"));
-        assert!(installer_version_matches(b"    DEFAULT_VERSION=0.8.6\r\n", "0.8.6"));
-        assert!(!installer_version_matches(b"DEFAULT_VERSION=0.8.5\r\n", "0.8.6"));
+        assert!(installer_version_matches(
+            b"    DEFAULT_VERSION=0.8.6\n",
+            "0.8.6"
+        ));
+        assert!(installer_version_matches(
+            b"    DEFAULT_VERSION=0.8.6\r\n",
+            "0.8.6"
+        ));
+        assert!(!installer_version_matches(
+            b"DEFAULT_VERSION=0.8.5\r\n",
+            "0.8.6"
+        ));
     }
     #[test]
     #[cfg(unix)]

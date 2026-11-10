@@ -112,16 +112,45 @@ hashes (plus macOS signature), then renames without truncating an existing binar
 Symlink destinations are refused; failures are reported without launching code.
 Use temporary destinations for validation, never a user's running installation.
 
-The manual-only workflow has read-only repository permissions and retains
-per-target Actions artifacts. It runs native app/tool unit tests and isolated
-installer tests using the local built archive, followed by `--version`; no user
-installation or login is touched. It does not publish. Before a combined GitHub
-release, review every target artifact, use unique archive names, retain each
-per-target manifest, and combine checksum entries for all archives plus the
-identical installers. Do not overwrite one target's manifest with another or
-publish a checksum list containing only the final target. Installer URLs assume
-one combined `SHA256SUMS` at the version's release root. Inspect actual build
-results, notices and source boundary before publication.
+### Automatic builds and releases
+
+Pushes to `main` and pull requests targeting `main` automatically build and test
+all five native targets and verify the combined release assets. A pushed `vMAJOR.MINOR.PATCH` tag automatically runs the
+same checks, combines the bundles, and publishes one GitHub Release. The tag must
+point to a commit contained in `main` and match `Cargo.toml`, `Cargo.lock`,
+`install.sh`, and `install.ps1`. Ordinary commits never create tags or releases.
+The optional manual trigger builds artifacts only.
+
+For a new release, update those four version fields, commit and push to `main`,
+then tag that commit and push the tag (replace the example with the new version):
+
+```sh
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The workflow runs app/tool unit tests and isolated installer tests with each
+locally built archive, followed by `--version`; no user installation or login is
+touched. Publication waits for **all five targets**. The Rust assembler verifies
+every artifact checksum, version, target, source hash, and shared installer;
+it preserves five uniquely named manifests and writes one combined `SHA256SUMS`
+covering all five archives, both installers, the source inventory and manifests.
+A missing or inconsistent bundle stops publication.
+
+Build and assembly jobs have read-only repository permissions. Only the final
+publication job gets `contents: write`; it downloads verified assets and does
+not check out or execute repository code. A release stays a draft until every
+asset has uploaded. A failed upload can be rerun while the release is still a
+draft; an already published release is never overwritten. No PAT is needed.
+
+To check a tag or assemble downloaded artifacts locally without publishing:
+
+```sh
+cargo run --manifest-path tools/xtask/Cargo.toml --locked -- check-release-tag v1.2.3
+# Each artifact is extracted into artifacts/dot-tui-<TARGET>/.
+cargo run --manifest-path tools/xtask/Cargo.toml --locked -- \
+  assemble-release artifacts release --tag v1.2.3
+```
 
 ### Terminal and authentication limits
 
