@@ -1,5 +1,5 @@
 # dot-tui native Windows installer. Does not modify PATH, execution policy or login.
-param([string]$Version = '0.8.6', [string]$InstallDir = "$env:USERPROFILE\.local\bin")
+param([string]$Version = '0.8.7', [string]$InstallDir = "$env:USERPROFILE\.local\bin")
 $ErrorActionPreference = 'Stop'
 function Assert-PlainPath([string]$Path) {
     $current = [IO.Path]::GetFullPath($Path)

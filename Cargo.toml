@@ -1,6 +1,6 @@
 [package]
 name = "dot-tui"
-version = "0.8.6"
+version = "0.8.7"
 edition = "2024"
 rust-version = "1.89"
 repository = "https://github.com/cfngc4594/dot-tui"
