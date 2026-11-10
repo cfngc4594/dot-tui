@@ -35,6 +35,9 @@ pub(super) struct MessageRows {
     pub end: usize,
     pub attachments: Vec<AttachmentHit>,
     pub media: Vec<MediaRows>,
+    // Copyable body rows before timestamps, prompt prefixes, and outer chrome.
+    pub selection_lines: Vec<crate::scrollback::types::BlockLine>,
+    pub selection_columns: Vec<u16>,
 }
 pub(super) struct Prepared {
     pub messages: Vec<MessageRows>,

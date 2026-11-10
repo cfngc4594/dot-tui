@@ -2,59 +2,111 @@
 //! SystemClipboard and xai-grok-shared clipboard macOS text paths; Apache-2.0.
 //! Text provider; explicit image paste uses image_clipboard/image_ingress.
 //! Dot omits OSC52/tmux/telemetry and uses one shared injectable text provider.
+//! Follow-up modification: preserve actual local write success/failure for the
+//! original Grok result toast, including copies made inside the textarea.
 //! Constructing the system provider does not read or write the pasteboard.
-use std::{cell::RefCell, rc::Rc};
+use crate::copy_feedback::CopyOutcome;
+use std::{cell::RefCell, rc::Rc, time::Instant};
 use xai_ratatui_textarea::{ClipboardProvider, InternalClipboard};
+
+#[derive(Debug)]
+enum Backend {
+    Provider(Box<dyn ClipboardProvider>),
+    System,
+    #[cfg(test)]
+    Failed,
+}
+#[derive(Debug)]
+struct State {
+    backend: Backend,
+    copied: Option<(CopyOutcome, Instant)>,
+}
 #[derive(Clone, Debug)]
-pub struct Clipboard(Rc<RefCell<Box<dyn ClipboardProvider>>>);
+pub struct Clipboard(Rc<RefCell<State>>);
 impl Default for Clipboard {
     fn default() -> Self {
-        Self(Rc::new(RefCell::new(
-            Box::new(InternalClipboard::default()),
-        )))
+        Self(Rc::new(RefCell::new(State {
+            backend: Backend::Provider(Box::new(InternalClipboard::default())),
+            copied: None,
+        })))
     }
 }
 impl Clipboard {
+    #[cfg(test)]
     pub fn replace(&self, provider: Box<dyn ClipboardProvider>) {
-        *self.0.borrow_mut() = provider;
+        let mut state = self.0.borrow_mut();
+        state.backend = Backend::Provider(provider);
+        state.copied = None;
+    }
+    pub fn use_system(&self) {
+        let mut state = self.0.borrow_mut();
+        state.backend = Backend::System;
+        state.copied = None;
     }
     pub fn get(&self) -> Option<String> {
-        self.0.borrow_mut().get()
+        let mut state = self.0.borrow_mut();
+        match &mut state.backend {
+            Backend::Provider(provider) => provider.get(),
+            Backend::System => {
+                #[cfg(target_os = "macos")]
+                {
+                    macos::get_text().ok().flatten()
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    crate::clipboard_portable::get_text().ok().flatten()
+                }
+            }
+            #[cfg(test)]
+            Backend::Failed => None,
+        }
+    }
+    pub fn take_copy_result(&self) -> Option<(CopyOutcome, Instant)> {
+        self.0.borrow_mut().copied.take()
     }
     pub fn provider(&self) -> Box<dyn ClipboardProvider> {
         Box::new(self.clone())
     }
+    #[cfg(test)]
+    pub fn fail_writes(&self) {
+        let mut state = self.0.borrow_mut();
+        state.backend = Backend::Failed;
+        state.copied = None;
+    }
 }
 impl ClipboardProvider for Clipboard {
     fn get(&mut self) -> Option<String> {
-        self.0.borrow_mut().get()
+        Clipboard::get(self)
     }
     fn set(&mut self, text: &str) {
-        self.0.borrow_mut().set(text);
-    }
-}
-#[derive(Debug)]
-pub struct SystemClipboard;
-impl ClipboardProvider for SystemClipboard {
-    fn get(&mut self) -> Option<String> {
-        #[cfg(target_os = "macos")]
-        {
-            macos::get_text().ok().flatten()
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            crate::clipboard_portable::get_text().ok().flatten()
-        }
-    }
-    fn set(&mut self, text: &str) {
-        #[cfg(target_os = "macos")]
-        {
-            let _ = macos::set_text(text);
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = crate::clipboard_portable::set_text(text);
-        }
+        let mut state = self.0.borrow_mut();
+        let success = match &mut state.backend {
+            // Internal/injected providers have the textarea's infallible contract.
+            Backend::Provider(provider) => {
+                provider.set(text);
+                true
+            }
+            Backend::System => {
+                #[cfg(target_os = "macos")]
+                {
+                    macos::set_text(text).is_ok()
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    crate::clipboard_portable::set_text(text).is_ok()
+                }
+            }
+            #[cfg(test)]
+            Backend::Failed => false,
+        };
+        state.copied = Some((
+            if success {
+                CopyOutcome::Copied
+            } else {
+                CopyOutcome::Failed
+            },
+            Instant::now(),
+        ));
     }
 }
 #[cfg(target_os = "macos")]

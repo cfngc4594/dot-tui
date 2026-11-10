@@ -26,8 +26,9 @@ integration are adapted to a single existing dot conversation.
 
 - Dot does not expose Grok coding-agent task/tool/diff blocks through this text
   adapter. No fake tool state, token counts or model identity are displayed.
-- Timestamp hover expansion, scrollback text selection/copy, image previews,
-  link-click actions and editable cursor positioning have not been ported.
+- Timestamp hover expansion and link-click actions remain outside the original
+  UI port. Message selection/copy is subsequently ported in SELECTION_PORT.md;
+  later image and textarea integration is recorded below and in IMAGE_PORT.md.
 - Terminal profile auto-detection is bounded to environment information; the
   full upstream capability-probing/settings runtime is not included.
 - Enter routing reuses PromptWidget; dot retains room binding, persistent send journaling and uncertainty locks.

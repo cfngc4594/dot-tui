@@ -165,10 +165,12 @@ fn transcript_layout_media(
         }
         let mut attachments = Vec::new();
         let mut claimed_images = std::collections::HashSet::new();
+        let mut selection_lines = Vec::new();
+        let mut selection_columns = Vec::new();
         let content = if is_dot {
-            assistant_lines(&body, content_width)
+            super::grok_markdown::render_with_joiners(&body, content_width)
         } else {
-            super::upstream_user_fold::lines(
+            super::upstream_user_fold::lines_with_joiners(
                 &body,
                 content_width.saturating_sub(2),
                 if m.role == "unknown" { "? " } else { "❯ " },
@@ -178,7 +180,25 @@ fn transcript_layout_media(
         if !is_dot {
             lines.push(Line::styled(" ".repeat(width), Style::default().bg(bg)));
         }
-        for (i, row) in content.into_iter().enumerate() {
+        for (i, (row, joiner)) in content.into_iter().enumerate() {
+            // Dot adapter for Grok scrollback/render.rs selection model. The
+            // body range excludes the entry timestamp and user-prompt prefix.
+            let prefix_cols = if is_dot { 0 } else { 2 };
+            let plain: String = row.spans.iter().map(|s| s.content.as_ref()).collect();
+            let copy = crate::scrollback::types::slice_display_cols(
+                &plain,
+                prefix_cols,
+                row.width().min(u16::MAX as usize) as u16,
+            );
+            selection_lines.resize_with(lines.len() - start, || {
+                crate::scrollback::types::BlockLine::separator(Line::default())
+            });
+            selection_columns.resize(lines.len() - start, 0);
+            let mut selectable = crate::scrollback::types::BlockLine::text(copy);
+            selectable.selection_range = Some(0);
+            selectable.joiner = joiner;
+            selection_lines.push(selectable);
+            selection_columns.push(3 + prefix_cols);
             let row_style = row.style;
             let mut spans = vec![Span::raw("   ")];
             spans.extend(row.spans);
@@ -272,6 +292,8 @@ fn transcript_layout_media(
             end: lines.len(),
             attachments,
             media: media_ranges,
+            selection_lines,
+            selection_columns,
         });
     }
     (lines, ranges)
@@ -284,6 +306,7 @@ fn transcript_messages(messages: &[super::Message], width: usize) -> Vec<Line<'s
 fn transcript(app: &App, width: usize) -> Vec<Line<'static>> {
     transcript_messages(&app.messages, width)
 }
+#[cfg(test)]
 fn assistant_lines(text: &str, width: usize) -> Vec<Line<'static>> {
     super::grok_markdown::render(text, width)
 }
@@ -398,6 +421,125 @@ pub(super) fn timeline(app: &App, area: Rect) -> Timeline {
         prepared,
         pending,
     }
+}
+// Adapter for upstream scrollback/render.rs: stable block-line indices, exact
+// body columns, visible clipping, and a snapshot key for async Dot re-layout.
+pub(super) fn selection_model(
+    app: &App,
+    area: Rect,
+) -> (
+    crate::scrollback::text_selection::ResolvedSelectionModel,
+    usize,
+) {
+    let timeline = timeline(app, area);
+    selection_model_in(app, &timeline)
+}
+fn selection_model_in(
+    app: &App,
+    timeline: &Timeline,
+) -> (
+    crate::scrollback::text_selection::ResolvedSelectionModel,
+    usize,
+) {
+    use crate::scrollback::{text_selection::*, types::*};
+    let body = timeline.content;
+    let mut model = ResolvedSelectionModel {
+        content_area: body,
+        ..Default::default()
+    };
+    if timeline.pending {
+        return (model, 0);
+    }
+    let Some(prepared) = &timeline.prepared else {
+        return (model, 0);
+    };
+    let offset = effective_scroll(app, &timeline);
+    let bottom = offset + body.height as usize;
+    for (entry_idx, message) in prepared.messages.iter().enumerate() {
+        if message.end <= offset || message.start >= bottom {
+            continue;
+        }
+        let first = message.start.max(offset);
+        let last = message.end.min(bottom);
+        let visible = Rect::new(
+            body.x,
+            body.y + (first - offset) as u16,
+            body.width,
+            (last - first) as u16,
+        );
+        model.visible_blocks.push(VisibleBlockGeometry {
+            entry_idx,
+            area: visible,
+            content_area: visible,
+            selection_area: visible,
+            content_width: prepared.width,
+            top_clipped: message.start < offset,
+            bottom_clipped: message.end > bottom,
+            drag_startable: true,
+        });
+        for (block_line_idx, line) in message.selection_lines.iter().enumerate() {
+            let row = message.start + block_line_idx;
+            if row < offset || row >= bottom {
+                continue;
+            }
+            let Some(mut cols) = selectable_cols(&line.content, &line.selectable) else {
+                continue;
+            };
+            let column = message.selection_columns[block_line_idx];
+            cols.end = cols.end.min(body.width.saturating_sub(column));
+            if cols.is_empty() {
+                continue;
+            }
+            model.push_line(ResolvedSelectableLine {
+                entry_idx,
+                range_id: line.selection_range.unwrap_or(0),
+                block_line_idx,
+                screen_y: body.y + (row - offset) as u16,
+                screen_x: body.x + column,
+                selectable_cols: cols,
+                text: derive_selection_text(line),
+                painted_region: Some(painted_selectable_region(line)),
+                joiner_to_previous: line.joiner.clone(),
+            });
+        }
+    }
+    (model, Arc::as_ptr(prepared) as usize)
+}
+pub(super) fn selection_source(
+    app: &App,
+    area: Rect,
+    entry: usize,
+) -> Vec<crate::scrollback::types::BlockLine> {
+    timeline(app, area)
+        .prepared
+        .and_then(|p| p.messages.get(entry).map(|m| m.selection_lines.clone()))
+        .unwrap_or_default()
+}
+pub(super) fn selection_blocks(app: &App, area: Rect) -> Vec<String> {
+    use crate::scrollback::types::{Selectable, derive_selection_text};
+    timeline(app, area)
+        .prepared
+        .map(|p| {
+            p.messages
+                .iter()
+                .map(|m| {
+                    let mut text = String::new();
+                    let mut first = true;
+                    for line in &m.selection_lines {
+                        if matches!(line.selectable, Selectable::None) {
+                            continue;
+                        }
+                        if !first {
+                            text.push_str(line.joiner.as_deref().unwrap_or("\n"));
+                        }
+                        text.push_str(&derive_selection_text(line));
+                        first = false;
+                    }
+                    text
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 pub(super) fn user_prefix_lines(lines: Vec<Line<'static>>, prefix: &str) -> Vec<Line<'static>> {
     upstream::user_lines(lines, prefix)
@@ -669,6 +811,8 @@ pub(super) fn draw(f: &mut Frame, app: &App) {
         })
         .unwrap_or_default();
     f.render_widget(Paragraph::new(visible), body);
+    let (selection_model, selection_snapshot) = selection_model_in(app, &timeline);
+    crate::history_selection::render(app, selection_model, selection_snapshot, f.buffer_mut());
     app.history_frame.borrow_mut().clear();
     app.visible_media.borrow_mut().clear();
     *app.history_image_hover.borrow_mut() = None;
@@ -697,6 +841,7 @@ pub(super) fn draw(f: &mut Frame, app: &App) {
                             && app.picker.context.is_none()
                             && !app.language_menu.open()
                             && !app.prompt_mouse_down
+                            && !app.history_selection.borrow().latched()
                         {
                             *app.history_image_hover.borrow_mut() =
                                 Some((hit.file.clone(), number));
@@ -852,6 +997,26 @@ pub(super) fn draw(f: &mut Frame, app: &App) {
             geometry.status,
             app.bottom_hover.get(),
         ));
+    }
+    // The textarea and message selection share the same provider. Consume its
+    // actual write result once, instead of displaying success merely on mouse-up.
+    if let Some((outcome, at)) = app.clipboard.take_copy_result() {
+        app.copy_feedback.borrow_mut().show(outcome, at);
+    }
+    if let Some(message) = app
+        .copy_feedback
+        .borrow()
+        .message(std::time::Instant::now())
+        && let Some(toast) = crate::copy_feedback::render(f.buffer_mut(), geometry.body, &message)
+    {
+        // Upstream registers this toast as a frame occluder. Dot's inline image
+        // adapter clips the final overlapping row so terminal pixels cannot hide it.
+        app.history_frame.borrow_mut().retain_mut(|placement| {
+            if placement.area.intersects(toast) {
+                placement.area.height = toast.y.saturating_sub(placement.area.y);
+            }
+            placement.area.height > 0
+        });
     }
     footer(f, app, area, enabled);
     if app.quit_review {

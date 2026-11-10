@@ -474,3 +474,33 @@ Windows private-file validation and credential loading are Dot-specific backend
 adaptations. New private files use a protected current-user/SYSTEM DACL; existing
 credential files must be current-user-owned with no grants beyond that user,
 SYSTEM or Administrators. No authentication tokens are copied between machines.
+
+## Message-body selection and copy
+
+The Grok Build selection engine and table geometry from public HEAD
+`2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8` (verified 2026-11-10) are extracted
+into `src/scrollback/`. Copyright 2023–2026 SpaceXAI, Apache-2.0. Selection-related
+`scrollback/types.rs` metadata is included. The full upstream license remains in
+`licenses/Grok-Build-APACHE-2.0.txt`; original source paths, verified blob IDs,
+modified boundaries and retained tests are listed in `SELECTION_PORT.md`.
+
+`src/history_selection.rs` adapts the original AgentView drag lifecycle, timer,
+copy and selection persistence to Dot's single async history pane and shared
+clipboard provider. `src/ui.rs` resolves copyable body columns; Markdown/user
+wrappers now retain the original soft-wrap joiners. Logical-order selection
+matches Dot's existing renderer rather than importing Grok visual BiDi/config.
+No full Grok runtime, terminal or pixel-equivalence claim is made.
+
+`src/copy_feedback.rs` extracts the original toast text fitting, bottom-right
+scrollback placement, GrokNight colors and copy-result durations from
+`app/agent_view/{notices,render}.rs` and pager-render `clipboard/mod.rs` in the
+same Apache-2.0 snapshot. Elapsed-time expiry, local clipboard result tracking,
+composer feedback and inline-image occlusion are explicit Dot host adapters.
+Copy-result labels use Dot's English/Chinese UI catalog. Text fitting and
+painting count terminal cells and preserve grapheme clusters so translated
+wide characters do not overlap; padding, colors and durations remain unchanged.
+`history_selection.rs` now includes the original WordSelect multi-click policy,
+semantic word/URL selection, paragraph/table selection and toast debounce.
+The installed Grok 1.0.77 documentation informs the WordSelect default; its
+non-public implementation is not claimed to have been copied. See
+`SELECTION_PORT.md` for runtime configuration evidence and remaining limits.

@@ -111,25 +111,79 @@ fn image_chip_line(text: &str) -> Line<'static> {
     spans.push(Span::raw(rest.to_owned()));
     Line::from(spans)
 }
+#[cfg(test)]
 pub fn lines(text: &str, width: usize, prefix: &str, is_expanded: bool) -> Vec<Line<'static>> {
+    lines_with_joiners(text, width, prefix, is_expanded)
+        .into_iter()
+        .map(|(line, _)| line)
+        .collect()
+}
+
+/// The joiner belongs to the content, before the display-only user prefix.
+pub fn lines_with_joiners(
+    text: &str,
+    width: usize,
+    prefix: &str,
+    is_expanded: bool,
+) -> Vec<(Line<'static>, Option<String>)> {
+    let text = crate::sanitize::strip_control_chars(text, true);
     let styled = text.split('\n').map(image_chip_line).collect();
-    let mut content = super::grok_markdown::wrap_styled(styled, width.max(1));
+    let mut content = super::grok_markdown::wrap_styled_with_joiners(styled, width.max(1));
     if !is_expanded && content.len() > COLLAPSED_MAX_LINES {
         content.truncate(COLLAPSED_MAX_LINES);
-        let last = content.pop().unwrap();
+        let (last, joiner) = content.pop().unwrap();
         // Original keeps spans when rewrapping the tail for the ellipsis.
         let mut row = super::grok_markdown::wrap_styled(vec![last], width.saturating_sub(2).max(1))
             .into_iter()
             .next()
             .unwrap_or_default();
         row.spans.push(ratatui::text::Span::raw(" …"));
-        content.push(row);
+        content.push((row, joiner));
     }
-    super::ui::user_prefix_lines(content, prefix)
+    let (lines, joiners): (Vec<_>, Vec<_>) = content.into_iter().unzip();
+    super::ui::user_prefix_lines(lines, prefix)
+        .into_iter()
+        .zip(joiners)
+        .collect()
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn prompt_prefix_does_not_change_joiners() {
+        let text = "alpha   beta gamma\nnext line";
+        let content = super::super::grok_markdown::wrap_styled_with_joiners(
+            text.split('\n').map(image_chip_line).collect(),
+            8,
+        );
+        let rows = lines_with_joiners(text, 8, "❯ ", true);
+        assert_eq!(rows.len(), content.len());
+        assert_eq!(
+            rows.iter().map(|(_, j)| j).collect::<Vec<_>>(),
+            content.iter().map(|(_, j)| j).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            lines(text, 8, "❯ ", true),
+            rows.iter()
+                .map(|(line, _)| line.clone())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn collapsed_tail_retains_its_original_boundary_and_styles() {
+        let text = "alpha beta gamma delta epsilon zeta eta theta [Image #1]";
+        let expanded = lines_with_joiners(text, 12, "❯ ", true);
+        let collapsed = lines_with_joiners(text, 12, "❯ ", false);
+        assert!(expanded.len() > COLLAPSED_MAX_LINES);
+        assert_eq!(collapsed.len(), COLLAPSED_MAX_LINES);
+        assert_eq!(collapsed[2].1, expanded[2].1);
+        assert!(collapsed[2].0.spans.last().unwrap().content.ends_with(" …"));
+        assert_eq!(collapsed[0], expanded[0]);
+        assert_eq!(collapsed[1], expanded[1]);
+    }
+
     #[test]
     fn upstream_fold_modes() {
         assert!(!is_foldable("1\n2\n3"));

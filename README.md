@@ -37,6 +37,8 @@ For a read-only session:
 dot-tui --read-only
 ```
 
+For a trusted local proxy, run `HTTPS_PROXY=http://127.0.0.1:7897 dot-tui` (replace the example port); use `--no-proxy` for direct access. See [proxy details](docs/PROXY.md).
+
 dot-tui uses your existing Codex login and a non-public ChatGPT backend. This integration is experimental. See [security and limitations](SECURITY.md) for authentication details, terminal requirements, and live-account validation status.
 
 ## License

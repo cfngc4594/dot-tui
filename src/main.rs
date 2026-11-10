@@ -4,12 +4,15 @@ mod attachments;
 mod audit_tests;
 mod backend;
 mod clipboard_bridge;
-#[cfg(not(target_os = "macos"))]
-mod clipboard_portable;
 #[cfg(target_os = "macos")]
 mod clipboard_native;
 #[allow(dead_code)]
 mod clipboard_paste;
+#[cfg(not(target_os = "macos"))]
+mod clipboard_portable;
+mod copy_feedback;
+#[cfg(test)]
+mod copy_feedback_tests;
 mod diagnostics;
 mod dropdown_chrome;
 #[cfg(test)]
@@ -20,6 +23,9 @@ mod grok_markdown;
 mod grok_scroll;
 #[cfg(test)]
 mod grok_ui_parity_tests;
+mod history_selection;
+#[cfg(test)]
+mod history_selection_tests;
 mod i18n;
 #[cfg(test)]
 mod image_app_tests;
@@ -30,6 +36,8 @@ mod image_composer;
 #[cfg(feature = "dev-demo")]
 mod image_demo;
 mod image_download;
+#[cfg(test)]
+mod image_focus_tests;
 mod image_ingress;
 #[allow(dead_code)]
 mod image_transfer;
@@ -44,8 +52,11 @@ mod prompt_images;
 #[allow(dead_code)]
 mod render;
 mod sanitize;
+mod scrollback;
 #[allow(dead_code)]
 mod scrollbar;
+#[cfg(any(test, feature = "dev-demo"))]
+mod showcase;
 mod slash;
 #[allow(dead_code)]
 mod slash_dropdown;
@@ -94,6 +105,9 @@ struct Args {
     /// Read messages without enabling the composer.
     #[arg(long)]
     read_only: bool,
+    /// Connect directly, ignoring proxy environment variables.
+    #[arg(long)]
+    no_proxy: bool,
     /// Existing official Codex login file, not an inline token.
     #[arg(long)]
     auth: Option<PathBuf>,
@@ -101,6 +115,10 @@ struct Args {
     #[cfg(feature = "dev-demo")]
     #[arg(long, conflicts_with = "auth")]
     demo: bool,
+    /// Offline README scene for a 128x40 terminal; never reads credentials.
+    #[cfg(feature = "dev-demo")]
+    #[arg(long, conflicts_with_all = ["auth", "demo_delay_ms", "demo_history", "demo_incoming", "demo_image", "demo_clipboard_image", "demo_inline_fixtures", "demo_inline_large_fixtures"])]
+    showcase: bool,
     /// Development-only synthetic connection delay, never accesses an account.
     #[cfg(feature = "dev-demo")]
     #[arg(long, requires = "demo", default_value_t = 0)]
@@ -129,10 +147,20 @@ struct Args {
     demo_inline_large_fixtures: bool,
 }
 impl Args {
+    fn is_showcase(&self) -> bool {
+        #[cfg(feature = "dev-demo")]
+        {
+            self.showcase
+        }
+        #[cfg(not(feature = "dev-demo"))]
+        {
+            false
+        }
+    }
     fn is_demo(&self) -> bool {
         #[cfg(feature = "dev-demo")]
         {
-            self.demo
+            self.demo || self.showcase
         }
         #[cfg(not(feature = "dev-demo"))]
         {
@@ -212,10 +240,12 @@ struct App {
     history_press: Option<(String, u16, u16)>,
     last_history_click: Option<(Instant, String, u8)>,
     text_selection: upstream_text_selection::TextSelection,
+    history_selection: std::cell::RefCell<history_selection::HistorySelection>,
     keyboard_confirmed: bool,
     window_focused: bool,
     reassert_mouse_capture: bool,
     clipboard: clipboard_bridge::Clipboard,
+    copy_feedback: std::cell::RefCell<copy_feedback::CopyToast>,
     prompt_focused: bool,
     prompt_mouse_down: bool,
     focus_in_batch: bool,
@@ -297,11 +327,15 @@ impl App {
             expanded_messages: Default::default(),
             history_press: None,
             last_history_click: None,
-            text_selection: Default::default(),
+            // Use upstream WordSelect, matching the installed Grok 1.0.77 docs.
+            // The public source's Flash default can be overridden at startup.
+            text_selection: upstream_text_selection::TextSelection::WordSelect,
+            history_selection: Default::default(),
             keyboard_confirmed: false,
             window_focused: true,
             reassert_mouse_capture: false,
             clipboard,
+            copy_feedback: Default::default(),
             prompt_focused: true,
             prompt_mouse_down: false,
             focus_in_batch: false,
@@ -524,6 +558,7 @@ impl App {
         !self.worker_failed
     }
     fn goto_bottom(&mut self) {
+        self.history_selection.borrow_mut().clear();
         self.fold_anchor = None;
         self.scroller.cancel();
         self.reading_anchor = None;
@@ -534,6 +569,7 @@ impl App {
         self.last_history_click = None;
     }
     fn history_changed(&self) {
+        self.history_selection.borrow_mut().clear();
         self.timeline_cache.invalidate();
     }
     fn can_edit(&self) -> bool {
@@ -1160,7 +1196,18 @@ impl App {
                         if !self.follow_latest && self.reading_anchor.is_none() {
                             self.reading_anchor = ui::reading_anchor(self);
                         }
-                        self.history_changed();
+                        // Background polls often repeat the same messages. Keep
+                        // WordSelect and its exact layout snapshot until visible
+                        // data really changes; older pages ignore existing IDs.
+                        let changed = messages.iter().any(|message| {
+                            match self.messages.iter().find(|old| old.id == message.id) {
+                                Some(old) => !older && old != message,
+                                None => true,
+                            }
+                        });
+                        if changed {
+                            self.history_changed();
+                        }
                         let count = messages.len();
                         self.last_result = format!(
                             "{}本页已读取 {count} 条消息",
@@ -1444,12 +1491,21 @@ fn demo_image_view(dot: &Dot, file: &str) -> Result<prompt_images::PastedImage, 
             if !url.path().contains("/files/") {
                 return Err("invalid fake metadata endpoint".into());
             }
+            let name = if self.file == showcase::IMAGE_ID {
+                "quiet-horizon.png"
+            } else {
+                "offline-received.png"
+            };
             Ok(
-                serde_json::json!({"mime_type":"image/png","name":"offline-received.png","download_url":"https://images.example.test/synthetic","image_metadata":{"width":32,"height":24}}),
+                serde_json::json!({"mime_type":"image/png","name":name,"download_url":"https://images.example.test/synthetic"}),
             )
         }
         fn anonymous(&mut self, _url: reqwest::Url) -> Result<Vec<u8>, String> {
-            Ok(image_ingress::synthetic_media(&self.file))
+            Ok(if self.file == showcase::IMAGE_ID {
+                showcase::image_bytes()
+            } else {
+                image_ingress::synthetic_media(&self.file)
+            })
         }
     }
     let room = image_transfer::BoundRoom::from_unique(
@@ -1466,9 +1522,15 @@ fn demo_image_view(dot: &Dot, file: &str) -> Result<prompt_images::PastedImage, 
     )
 }
 
+#[derive(Clone)]
+struct LiveConfig {
+    auth_path: PathBuf,
+    no_proxy: bool,
+}
+
 enum Source {
-    PendingLive(PathBuf),
-    Unavailable(PathBuf, String),
+    PendingLive(LiveConfig),
+    Unavailable(LiveConfig, String),
     #[cfg(any(test, feature = "dev-demo"))]
     Demo(FakeBackend),
     Live(Backend),
@@ -1485,11 +1547,11 @@ impl Source {
             let fake = false;
             return Reply::StagedImage(epoch, image_ingress::stage(input, fake));
         }
-        if let Self::PendingLive(path) | Self::Unavailable(path, _) = self {
-            let path = path.clone();
-            *self = match Backend::new(path.clone()) {
+        if let Self::PendingLive(config) | Self::Unavailable(config, _) = self {
+            let config = config.clone();
+            *self = match Backend::new(config.auth_path.clone(), config.no_proxy) {
                 Ok(b) => Self::Live(b),
-                Err(e) => Self::Unavailable(path, e),
+                Err(e) => Self::Unavailable(config, e),
             };
         }
         if let Job::Page(g, ref dot, ref before) = job
@@ -1787,6 +1849,7 @@ fn apply_scroll(app: &mut App, delta: i32, area: Rect) {
     if delta == 0 || app.quit_review {
         return;
     }
+    app.history_selection.borrow_mut().clear();
     sync_history_position(app, area);
     if app.fold_anchor.take().is_some() {
         app.reading_anchor = ui::reading_anchor(app);
@@ -1815,6 +1878,9 @@ fn apply_scroll(app: &mut App, delta: i32, area: Rect) {
 fn mouse(app: &mut App, m: MouseEvent, area: Rect, tx: &mpsc::Sender<Job>) -> bool {
     if !app.window_focused {
         return false;
+    }
+    if m.kind == MouseEventKind::Down(MouseButton::Left) {
+        app.history_selection.borrow_mut().clear_for_press();
     }
     if app.can_edit() && app.language_menu.open() {
         let inside = app.language_menu.hover(m.column, m.row);
@@ -1876,6 +1942,9 @@ fn mouse(app: &mut App, m: MouseEvent, area: Rect, tx: &mpsc::Sender<Job>) -> bo
             app.image_view_epoch = app.image_view_epoch.wrapping_add(1);
             app.focus_in_batch = true;
         }
+        return false;
+    }
+    if !app.quit_review && app.ui_visible && history_selection::motion_or_release(app, m, area) {
         return false;
     }
     if matches!(
@@ -1942,6 +2011,10 @@ fn mouse(app: &mut App, m: MouseEvent, area: Rect, tx: &mpsc::Sender<Job>) -> bo
             && !upstream_user_fold::drag_threshold_exceeded((x, y), m.column, m.row)
             && ui::message_hit(app, area, m.column, m.row).as_deref() == Some(id.as_str())
         {
+            if history_selection::text_click(app, x, y, area) {
+                app.scrollbar_drag = None;
+                return false;
+            }
             let now = Instant::now();
             let count = upstream_user_fold::click_count(
                 app.last_history_click
@@ -1955,10 +2028,9 @@ fn mouse(app: &mut App, m: MouseEvent, area: Rect, tx: &mpsc::Sender<Job>) -> bo
             } else {
                 Some((now, id.clone(), count))
             };
-            // Preserve original word_select precedence. Dot's fixed compile-time
-            // default is Flash; it does not load Grok remote/user settings.
+            // Exact WordSelect body hits returned above; non-text chrome keeps
+            // the original block-level fold action in every selection mode.
             if count == 2
-                && !app.text_selection.selects_word()
                 && let Some(message) = app
                     .messages
                     .iter()
@@ -2056,8 +2128,12 @@ fn mouse(app: &mut App, m: MouseEvent, area: Rect, tx: &mpsc::Sender<Job>) -> bo
             return false;
         }
     }
+    if !app.quit_review && m.kind == MouseEventKind::Down(MouseButton::Left) {
+        history_selection::begin(app, m, area);
+    }
     match m.kind {
         MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+            app.history_selection.borrow_mut().clear();
             app.scrollbar_drag = None;
             app.history_press = None;
             app.last_history_click = None;
@@ -2249,6 +2325,15 @@ fn key(app: &mut App, k: event::KeyEvent, tx: &mpsc::Sender<Job>) -> bool {
             _ => {}
         }
     }
+    // Upstream copy ownership: history selection wins before prompt Ctrl+C.
+    if k.kind == KeyEventKind::Press
+        && k.code == KeyCode::Char('c')
+        && matches!(k.modifiers, KeyModifiers::CONTROL | KeyModifiers::SUPER)
+        && history_selection::copy_key(app)
+    {
+        return false;
+    }
+    app.history_selection.borrow_mut().clear();
     app.history_pointer.set(None);
     // Cropped Grok up-arrow input-history behavior. Never replays a request.
     if k.kind == KeyEventKind::Press
@@ -2396,6 +2481,27 @@ fn key(app: &mut App, k: event::KeyEvent, tx: &mpsc::Sender<Job>) -> bool {
     }
     false
 }
+// History pixels are content, not input focus. Keep visible placements when
+// another window has focus; only occluding UI and viewport changes hide them.
+fn paint_inline_history(app: &App, area: Rect) -> String {
+    let room = app
+        .dots
+        .get(app.selected)
+        .and_then(|d| d.room.as_deref())
+        .unwrap_or("");
+    inline_history::paint_with_pending(
+        &app.native_media,
+        room,
+        &app.history_frame.borrow(),
+        area,
+        app.image_painted.get().is_none()
+            && !app.quit_review
+            && app.pending.is_none()
+            && app.picker.context.is_none()
+            && !app.language_menu.open(),
+        app.history_layout_pending.get(),
+    )
+}
 // Necessary terminal adapter: the upstream cursor policy is reused verbatim,
 // while stock ratatui replaces Grok's custom writer/inline terminal backend.
 #[derive(Default)]
@@ -2429,24 +2535,8 @@ impl Presenter {
             .backend_mut()
             .queue(crossterm::terminal::BeginSynchronizedUpdate)?;
         terminal.flush()?;
-        let room = app
-            .dots
-            .get(app.selected)
-            .and_then(|d| d.room.as_deref())
-            .unwrap_or("");
-        let inline = inline_history::paint_with_pending(
-            &app.native_media,
-            room,
-            &app.history_frame.borrow(),
-            Rect::new(0, 0, terminal.size()?.width, terminal.size()?.height),
-            app.image_painted.get().is_none()
-                && !app.quit_review
-                && app.pending.is_none()
-                && app.picker.context.is_none()
-                && !app.language_menu.open()
-                && app.window_focused,
-            app.history_layout_pending.get(),
-        );
+        let size = terminal.size()?;
+        let inline = paint_inline_history(app, Rect::new(0, 0, size.width, size.height));
         std::io::Write::write_all(terminal.backend_mut(), inline.as_bytes())?;
         if !inline_history::upload_pending()
             && let Some(escapes) = app.image_escapes.borrow_mut().take()
@@ -2497,6 +2587,7 @@ fn dispatch_input(
         }
         Event::Mouse(m) => {
             if current != frame {
+                app.history_selection.borrow_mut().clear();
                 app.scrollbar_drag = None;
                 false
             } else {
@@ -2505,6 +2596,7 @@ fn dispatch_input(
             }
         }
         Event::FocusLost => {
+            app.history_selection.borrow_mut().clear();
             app.history_pointer.set(None);
             app.window_focused = false;
             app.focus_in_batch = true;
@@ -2525,6 +2617,7 @@ fn dispatch_input(
             false
         }
         Event::Paste(s) if app.window_focused => {
+            app.history_selection.borrow_mut().clear();
             app.history_pointer.set(None);
             app.paste_in_batch = true;
             app.last_paste = Some(Instant::now());
@@ -2560,6 +2653,7 @@ fn dispatch_input(
             false
         }
         Event::Resize(_, _) => {
+            app.history_selection.borrow_mut().clear();
             app.history_pointer.set(None);
             if !app.follow_latest && app.reading_anchor.is_none() {
                 app.reading_anchor = ui::snapshot_anchor(app);
@@ -2609,7 +2703,14 @@ fn run(args: Args) -> Result<(), String> {
     let demo = args.is_demo();
     // This is an interactive application, not a credential-taking batch command.
     // Launching it directly starts the requested real connection; no repeated banner.
-    let (language_path, language_error) = i18n::load();
+    // A public screenshot fixture is independent of private saved preferences.
+    // No preference save path is supplied in this screenshot-only scene.
+    let (language_path, language_error) = if args.is_showcase() {
+        i18n::set(i18n::Language::English);
+        (None, None)
+    } else {
+        i18n::load()
+    };
     require_terminal(io::stdin().is_terminal(), io::stdout().is_terminal())?;
     let mut app = App::new();
     app.language_path = language_path.clone();
@@ -2681,6 +2782,9 @@ fn run(args: Args) -> Result<(), String> {
                 app.messages.clear();
                 app.begin("开发模拟连接");
             }
+            if args.showcase {
+                showcase::configure(&mut app, &mut fake);
+            }
             Source::Demo(fake)
         }
         #[cfg(not(feature = "dev-demo"))]
@@ -2694,9 +2798,11 @@ fn run(args: Args) -> Result<(), String> {
             .or_else(|| platform_fs::home_dir().map(|p| p.join(".codex/auth.json")))
             .ok_or("Cannot locate login path")?;
         diagnostics::init()?;
-        app.clipboard
-            .replace(Box::new(clipboard_bridge::SystemClipboard));
-        Source::PendingLive(path)
+        app.clipboard.use_system();
+        Source::PendingLive(LiveConfig {
+            auth_path: path,
+            no_proxy: args.no_proxy,
+        })
     };
     let (tx, rxj) = mpsc::channel();
     let (txr, rx) = mpsc::channel();
@@ -2828,6 +2934,7 @@ fn run(args: Args) -> Result<(), String> {
         app.ui_visible = size.width >= 42 && size.height >= 18;
         let viewport = Rect::new(0, 0, size.width, size.height);
         if last_viewport != Some(viewport) {
+            app.history_selection.borrow_mut().clear();
             if !app.follow_latest && app.reading_anchor.is_none() {
                 app.reading_anchor = ui::reading_anchor(&app);
             }
@@ -2854,6 +2961,9 @@ fn run(args: Args) -> Result<(), String> {
                 };
             }
         }
+        if app.window_focused && app.ui_visible && !app.quit_review {
+            history_selection::tick(&mut app, viewport, Instant::now());
+        }
         presenter
             .paint(&mut terminal, &app)
             .map_err(|_| "Terminal draw failed")?;
@@ -2863,6 +2973,9 @@ fn run(args: Args) -> Result<(), String> {
             .next_flush_in(Instant::now())
             .unwrap_or(Duration::from_millis(100))
             .min(Duration::from_millis(100));
+        if let Some(selection_wait) = history_selection::wait(&app) {
+            wait = wait.min(selection_wait);
+        }
         if inline_history::upload_pending() {
             wait = wait.min(Duration::from_millis(8));
         }
@@ -3034,9 +3147,15 @@ mod tests {
     #[test]
     fn default_is_real_single_conversation_with_enter_send() {
         let args = Args::try_parse_from(["dot-tui"]).unwrap();
-        assert!(!args.is_demo() && !args.read_only);
+        assert!(!args.is_demo() && !args.read_only && !args.no_proxy);
         let a = App::new();
         assert!(a.live && a.dots.is_empty() && a.messages.is_empty() && a.pending.is_none());
+    }
+    #[test]
+    fn explicit_no_proxy_is_available_with_read_only() {
+        let args = Args::try_parse_from(["dot-tui", "--no-proxy", "--read-only"]).unwrap();
+        assert!(args.no_proxy && args.read_only);
+        assert!(Args::try_parse_from(["dot-tui", "--proxy", "http://localhost:7897"]).is_err());
     }
     #[test]
     fn no_startup_consent_switch_or_prompt_is_required() {
@@ -3055,7 +3174,10 @@ mod tests {
     #[test]
     fn production_has_no_demo_argument() {
         #[cfg(not(feature = "dev-demo"))]
-        assert!(Args::try_parse_from(["dot-tui", "--demo"]).is_err());
+        {
+            assert!(Args::try_parse_from(["dot-tui", "--demo"]).is_err());
+            assert!(Args::try_parse_from(["dot-tui", "--showcase"]).is_err());
+        }
     }
     #[test]
     fn merge_deduplicates() {

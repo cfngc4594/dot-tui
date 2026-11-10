@@ -15,7 +15,15 @@ one bound dot with an existing room and an explicit non-repeat Enter press. No b
 turn a draft into a send. Sending can cause your dot to execute the supplied task.
 
 Credentials go only to fixed HTTPS paths at chatgpt.com:443. TLS checks enabled;
-redirects/proxies and ALL automatic retries disabled. Only GET dot/message lists
+redirects and ALL automatic retries disabled. Like Grok Build, the API transport
+uses reqwest's proxy environment variables by default; `--no-proxy` explicitly
+forces a direct connection. HTTP proxies carry HTTPS through CONNECT, followed
+by the existing certificate/hostname-verified TLS connection to ChatGPT. Account
+headers are not sent in the CONNECT handshake. Proxy operators can still observe
+connection destinations/timing; only use a proxy you trust. No system settings,
+PAC/WPAD scripts, OS keychains, or Codex proxy configuration are read or changed.
+See [proxy behavior and verification](docs/PROXY.md) for scope and limitations.
+Only GET dot/message lists
 and room-scoped metadata, image upload and message POST are implemented.
 Image downloads use a separate anonymous client, with no account headers,
 no cookies/proxies/redirects, public-address preflight and DNS pinning. A generic

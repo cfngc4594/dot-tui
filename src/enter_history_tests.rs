@@ -630,7 +630,7 @@ fn fold_app() -> App {
     a
 }
 #[test]
-fn original_user_default_three_lines_and_double_click_toggle_survive_refresh() {
+fn original_user_default_three_lines_and_gutter_double_click_survive_refresh() {
     let (tx, _) = mpsc::channel();
     let mut a = fold_app();
     let area = Rect::new(0, 0, 100, 30);
@@ -645,9 +645,13 @@ fn original_user_default_three_lines_and_double_click_toggle_survive_refresh() {
         .map(|c| c.symbol())
         .collect();
     assert!(text.contains("third") && text.contains('…') && !text.contains("fourth"));
-    click(&mut a, area, &tx, 7, 5);
+    // WordSelect gives exact body hits to word/paragraph selection. The original
+    // block fold action remains on the prompt prefix (non-text chrome).
+    let first = ui::selection_model(&a, area).0.ranges[0].lines[0].clone();
+    let gutter = (first.screen_x - 1, first.screen_y);
+    click(&mut a, area, &tx, gutter.0, gutter.1);
     assert!(a.expanded_messages.is_empty());
-    click(&mut a, area, &tx, 7, 5);
+    click(&mut a, area, &tx, gutter.0, gutter.1);
     assert_eq!(a.expanded_messages.get("user-long"), Some(&true));
     ui::settle(&a, area);
     sync_history_position(&mut a, area);
@@ -659,11 +663,11 @@ fn original_user_default_three_lines_and_double_click_toggle_survive_refresh() {
     sync_history_position(&mut a, area);
     assert_eq!(a.expanded_messages.get("user-long"), Some(&true));
     // Third click in a sequence is not another toggle for a user prompt.
-    click(&mut a, area, &tx, 7, 5);
+    click(&mut a, area, &tx, gutter.0, gutter.1);
     assert_eq!(a.expanded_messages.get("user-long"), Some(&true));
     a.last_history_click = None;
-    click(&mut a, area, &tx, 7, 5);
-    click(&mut a, area, &tx, 7, 5);
+    click(&mut a, area, &tx, gutter.0, gutter.1);
+    click(&mut a, area, &tx, gutter.0, gutter.1);
     ui::settle(&a, area);
     sync_history_position(&mut a, area);
     assert_eq!(a.expanded_messages.get("user-long"), Some(&false));

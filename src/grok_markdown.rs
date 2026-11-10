@@ -4,7 +4,7 @@
 // Verified commit: 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8
 // Original parser, renderer, syntax engine and assets are in vendor/.
 // Dot-specific changes: safe input/output boundary, bounded render cache,
-// fixed GrokNight theme selection, and a small Lines-only integration API.
+// fixed GrokNight theme selection, and metadata-preserving line integration APIs.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -17,12 +17,12 @@ use xai_grok_markdown::{MarkdownBuffers, Syntect};
 mod line_utils;
 mod md_style;
 #[allow(dead_code)]
-mod wrapping;
+pub(crate) mod wrapping;
 
 struct CachedRender {
     text: String,
     width: usize,
-    lines: Vec<Line<'static>>,
+    lines: Vec<(Line<'static>, Option<String>)>,
     bytes: usize,
 }
 
@@ -30,16 +30,18 @@ const CACHE_MAX_ENTRIES: usize = 288;
 const CACHE_MAX_BYTES: usize = 32 * 1024 * 1024;
 
 impl CachedRender {
-    fn new(text: String, width: usize, lines: Vec<Line<'static>>) -> Self {
+    fn new(text: String, width: usize, lines: Vec<(Line<'static>, Option<String>)>) -> Self {
         // Count source and rendered output, not just source length. Tiny-width
         // wrapping and syntax highlighting can create many Line/Span objects.
         let bytes = std::mem::size_of::<Self>()
             + text.capacity()
-            + lines.capacity() * std::mem::size_of::<Line<'static>>()
+            + lines.capacity() * std::mem::size_of::<(Line<'static>, Option<String>)>()
             + lines
                 .iter()
-                .map(|line| {
-                    line.spans.capacity() * std::mem::size_of::<ratatui::text::Span<'static>>()
+                .map(|(line, joiner)| {
+                    joiner.as_ref().map_or(0, String::capacity)
+                        + line.spans.capacity()
+                            * std::mem::size_of::<ratatui::text::Span<'static>>()
                         + line
                             .spans
                             .iter()
@@ -91,7 +93,17 @@ thread_local! {
 
 /// Render with Grok Build's actual markdown parser, renderer, syntax highlighter,
 /// GrokNight markdown styles and span-preserving word wrap.
+#[cfg(test)]
 pub fn render(text: &str, width: usize) -> Vec<Line<'static>> {
+    render_with_joiners(text, width)
+        .into_iter()
+        .map(|(line, _)| line)
+        .collect()
+}
+
+/// Preserve upstream soft-wrap separators for selection copying. `None` marks
+/// a hard line boundary; `Some` contains the exact omitted wrap whitespace.
+pub fn render_with_joiners(text: &str, width: usize) -> Vec<(Line<'static>, Option<String>)> {
     if width == 0 {
         return Vec::new();
     }
@@ -134,7 +146,7 @@ pub fn render(text: &str, width: usize) -> Vec<Line<'static>> {
         }
         line
     });
-    let lines = wrap_bounded(safe_lines, width);
+    let lines = wrap_bounded_with_joiners(safe_lines, width);
     CACHE.with(|cache| {
         cache_insert(
             &mut cache.borrow_mut(),
@@ -161,26 +173,49 @@ pub fn wrap_plain(text: &str, width: usize) -> Vec<Line<'static>> {
 
 // Shared upstream word wrapper for styled history chips and collapsed tails.
 pub(crate) fn wrap_styled(lines: Vec<Line<'static>>, width: usize) -> Vec<Line<'static>> {
+    wrap_styled_with_joiners(lines, width)
+        .into_iter()
+        .map(|(line, _)| line)
+        .collect()
+}
+
+pub(crate) fn wrap_styled_with_joiners(
+    lines: Vec<Line<'static>>,
+    width: usize,
+) -> Vec<(Line<'static>, Option<String>)> {
     if width == 0 {
         return Vec::new();
     }
-    wrap_bounded(lines, width.min(4096))
+    wrap_bounded_with_joiners(lines, width.min(4096))
 }
 
 fn wrap_bounded(
     lines: impl IntoIterator<Item = Line<'static>>,
     width: usize,
 ) -> Vec<Line<'static>> {
-    wrapping::word_wrap_lines(lines, width)
+    wrap_bounded_with_joiners(lines, width)
         .into_iter()
-        .map(|line| {
+        .map(|(line, _)| line)
+        .collect()
+}
+
+fn wrap_bounded_with_joiners(
+    lines: impl IntoIterator<Item = Line<'static>>,
+    width: usize,
+) -> Vec<(Line<'static>, Option<String>)> {
+    let (lines, joiners) = wrapping::word_wrap_lines_with_joiners(lines, width);
+    lines
+        .into_iter()
+        .zip(joiners)
+        .map(|(line, joiner)| {
             // A 2-cell glyph cannot fit a 1-cell viewport. Keep the renderer within
             // its viewport, including these pathological narrow-terminal cases.
-            if line.width() > width {
+            let line = if line.width() > width {
                 line_utils::fit_line_to_width(line, width)
             } else {
                 line
-            }
+            };
+            (line, joiner)
         })
         .collect()
 }
@@ -258,6 +293,47 @@ mod tests {
                     && line.style.patch(span.style).add_modifier.contains(modifier)
             })
         })
+    }
+
+    #[test]
+    fn joiners_restore_spaces_hard_breaks_and_split_unicode_words() {
+        let source = "alpha   beta gamma\n中文测试abcdefgh\n";
+        let rows = wrap_styled_with_joiners(
+            source
+                .split('\n')
+                .map(|s| Line::from(s.to_owned()))
+                .collect(),
+            7,
+        );
+        let mut restored = String::new();
+        for (index, (line, joiner)) in rows.iter().enumerate() {
+            if index > 0 {
+                restored.push_str(joiner.as_deref().unwrap_or("\n"));
+            }
+            restored.push_str(&plain(std::slice::from_ref(line)));
+        }
+        assert_eq!(restored, source);
+        assert!(rows.iter().any(|(_, j)| j.as_deref() == Some("   ")));
+        assert!(rows.iter().any(|(_, j)| j.as_deref() == Some("")));
+    }
+
+    #[test]
+    fn metadata_and_legacy_render_share_cached_output() {
+        CACHE.with(|cache| cache.borrow_mut().clear());
+        PARSE_COUNT.with(|count| count.set(0));
+        let source = "**alpha** beta gamma delta &#x202e;";
+        let legacy = render(source, 10);
+        let rows = render_with_joiners(source, 10);
+        assert_eq!(
+            legacy,
+            rows.iter()
+                .map(|(line, _)| line.clone())
+                .collect::<Vec<_>>()
+        );
+        assert!(rows.iter().any(|(_, joiner)| joiner.is_some()));
+        assert!(!plain(&legacy).contains('\u{202e}'));
+        PARSE_COUNT.with(|count| assert_eq!(count.get(), 1));
+        assert!(render_with_joiners(source, 0).is_empty());
     }
 
     #[test]
@@ -404,7 +480,11 @@ mod tests {
     #[test]
     fn cache_bounds_count_and_rendered_output_bytes() {
         fn small(text: &str) -> CachedRender {
-            CachedRender::new(text.to_owned(), 80, vec![Line::from("hello".to_owned())])
+            CachedRender::new(
+                text.to_owned(),
+                80,
+                vec![(Line::from("hello".to_owned()), None)],
+            )
         }
         let mut cache = VecDeque::new();
         let budget = small("one").bytes * 2;
@@ -423,7 +503,7 @@ mod tests {
         let huge = CachedRender::new(
             "big".to_owned(),
             80,
-            vec![Line::from("z".repeat(budget * 2))],
+            vec![(Line::from("z".repeat(budget * 2)), None)],
         );
         assert!(huge.bytes > budget);
         cache_insert(&mut cache, huge, 3, budget);

@@ -1,5 +1,6 @@
 //! Fixed-origin adapter for the unofficial ChatGPT dot protocol.
-//! Explicit send only; no token logging, retries, redirects, proxy or token refresh.
+//! Explicit send only; no token logging, retries, redirects or token refresh.
+//! Like Grok Build, reqwest reads proxy environment variables unless --no-proxy is set.
 use reqwest::{
     Url,
     blocking::Client,
@@ -61,8 +62,28 @@ pub struct Backend {
     client: Client,
 }
 
+// Preserve Grok Build's ordinary reqwest builder behavior: the dependency
+// handles HTTP(S)_PROXY / ALL_PROXY / NO_PROXY. No custom proxy discovery,
+// parsing, PAC execution, OS settings, or Codex configuration is involved.
+// Only the authenticated fixed-origin API uses this policy. Anonymous image
+// downloads retain their separate direct, DNS-pinned SSRF boundary.
+fn transport_builder(headers: HeaderMap, no_proxy: bool) -> reqwest::blocking::ClientBuilder {
+    let builder = Client::builder()
+        .default_headers(headers)
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
+        .https_only(true)
+        .timeout(Duration::from_secs(20))
+        .connect_timeout(Duration::from_secs(10));
+    if no_proxy {
+        builder.no_proxy()
+    } else {
+        builder
+    }
+}
+
 impl Backend {
-    pub fn new(auth_path: PathBuf) -> Result<Self, String> {
+    pub fn new(auth_path: PathBuf, no_proxy: bool) -> Result<Self, String> {
         let (token, account) = read_auth(&auth_path)?;
         let mut headers = HeaderMap::new();
         let mut auth = HeaderValue::from_str(&format!("Bearer {token}"))
@@ -77,14 +98,7 @@ impl Backend {
         headers.insert("originator", HeaderValue::from_static("Codex Desktop"));
         headers.insert("OAI-Product-Sku", HeaderValue::from_static("CODEX"));
         headers.insert("Accept", HeaderValue::from_static("application/json"));
-        let client = Client::builder()
-            .default_headers(headers)
-            .redirect(reqwest::redirect::Policy::none())
-            .retry(reqwest::retry::never())
-            .no_proxy()
-            .https_only(true)
-            .timeout(Duration::from_secs(20))
-            .connect_timeout(Duration::from_secs(10))
+        let client = transport_builder(headers, no_proxy)
             .build()
             .map_err(|_| "Cannot initialize secure transport.".to_owned())?;
         Ok(Self { client })
@@ -828,3 +842,7 @@ mod tests {
         std::fs::remove_dir_all(base).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "proxy_tests.rs"]
+mod proxy_tests;
