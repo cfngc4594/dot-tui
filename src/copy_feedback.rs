@@ -42,6 +42,14 @@ impl CopyToast {
     pub(crate) fn show(&mut self, outcome: CopyOutcome, at: Instant) {
         self.toast = Some((outcome, at));
     }
+    /// Keep a real copy outcome visible while a UI snapshot is prepared.
+    /// Lifetime boundaries are verified separately with explicit Instants.
+    #[cfg(test)]
+    pub(crate) fn pin_for_snapshot(&mut self) {
+        if let Some((_, at)) = &mut self.toast {
+            *at = Instant::now() + Duration::from_secs(24 * 60 * 60);
+        }
+    }
     pub(crate) fn message(&self, now: Instant) -> Option<String> {
         let (outcome, at) = self.toast?;
         (now.saturating_duration_since(at) < outcome.duration()).then(|| outcome.message())

@@ -427,6 +427,11 @@ fn copy_feedback_localizes_history_and_prompt_in_both_languages() {
 
     fn assert_toast(app: &App, area: Rect, expected: &str) {
         let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
+        // Drain the actual copy result first, then pin its lifetime for this
+        // rendering assertion. A busy runner can otherwise exhaust the 1-second
+        // toast before it gets CPU time; expiry has dedicated clock-based tests.
+        terminal.draw(|f| ui::draw(f, app)).unwrap();
+        app.copy_feedback.borrow_mut().pin_for_snapshot();
         // Inspect the frame: Terminal's diff deliberately skips wide continuation
         // cells, so TestBackend alone does not retain their current style.
         let frame = terminal.draw(|f| ui::draw(f, app)).unwrap();
