@@ -5,6 +5,8 @@
 - Read conversation history, send messages, and attach images from your terminal.
 - Render replies as Markdown and use `--read-only` to browse without composing.
 
+![dot-tui terminal interface](docs/assets/showcase.png)
+
 ## Install
 
 Native packages target macOS (Apple Silicon/Intel), Linux (arm64/x64, glibc 2.39+), and Windows x64.
