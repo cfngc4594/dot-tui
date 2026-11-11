@@ -18,7 +18,7 @@ The scene uses the real conversation, Markdown, timestamp, inline image, compose
 
 The upper-right spinner uses the product’s existing **Reading messages** state, held as a simulated history refresh rather than an unfinished assistant generation. No showcase badge or demo-only status label is added to the UI. The answer is complete. Editing, scrolling, resizing, and opening the image work. Automatic polling is held so the initial composition remains stable. The prefilled input is an unsent draft; Enter sends only to the local fake backend and leaves the held refresh scene. Re-launch to reset the composition. Press **Ctrl+Q** to exit.
 
-The showcase starts in English without reading or writing the saved language preference. Message times are fixed RFC 3339 values and use the normal local-time display. The spinner and elapsed time remain animated. The initial scene fits 128×40 without scrolling, including inline artwork, but smaller windows use normal scrolling.
+The showcase starts in English without reading or writing the saved language preference. Message times are fixed RFC 3339 values and use the normal local-time display. The initial Reading messages elapsed time is fixed at **1s** for screenshots; the spinner remains animated. Starting a new operation resumes normal elapsed-time tracking. The regular client is unaffected. The initial scene fits 128×40 without scrolling, including inline artwork, but smaller windows use normal scrolling.
 
 ## Customize the scene
 

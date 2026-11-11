@@ -33,6 +33,8 @@ pub fn configure(app: &mut App, backend: &mut FakeBackend) {
     // stays visible. The completed reply is not portrayed as still generating.
     // busy holds automatic polls. Sending still goes through FakeBackend only.
     app.begin("读取消息");
+    // Freeze only the screenshot scene; new operations resume the real clock.
+    app.showcase_elapsed_seconds = Some(1);
 }
 
 /// Original procedural artwork, Apache-2.0 like the source. No downloaded asset.
@@ -114,6 +116,27 @@ mod tests {
             &tx,
         );
         app
+    }
+
+    #[test]
+    fn showcase_timer_stays_at_one_second_and_new_operations_use_real_time() {
+        let mut app = App::demo();
+        let mut fake = FakeBackend::new();
+        configure(&mut app, &mut fake);
+        for elapsed in [0, 2, 60, 3600] {
+            app.operation.as_mut().unwrap().1 =
+                std::time::Instant::now() - std::time::Duration::from_secs(elapsed);
+            assert_eq!(app.status_line(), "读取消息 · 1秒");
+        }
+        app.begin("发送消息");
+        app.operation.as_mut().unwrap().1 =
+            std::time::Instant::now() - std::time::Duration::from_secs(5);
+        assert_eq!(app.status_line(), "发送消息 · 5秒");
+        let mut normal = App::demo();
+        normal.begin("读取消息");
+        normal.operation.as_mut().unwrap().1 =
+            std::time::Instant::now() - std::time::Duration::from_secs(8);
+        assert_eq!(normal.status_line(), "读取消息 · 8秒");
     }
 
     #[test]

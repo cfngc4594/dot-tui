@@ -265,6 +265,8 @@ struct App {
     read_failures: u32,
     ui_visible: bool,
     operation: Option<(String, Instant)>,
+    #[cfg(any(test, feature = "dev-demo"))]
+    showcase_elapsed_seconds: Option<u64>,
     last_result: String,
     status_observation: std::cell::RefCell<(String, Instant)>,
     worker_failed: bool,
@@ -355,6 +357,8 @@ impl App {
             read_failures: 0,
             ui_visible: true,
             operation: None,
+            #[cfg(any(test, feature = "dev-demo"))]
+            showcase_elapsed_seconds: None,
             last_result: "尚未完成消息读取".into(),
             status_observation: std::cell::RefCell::new((String::new(), Instant::now())),
             worker_failed: false,
@@ -375,6 +379,10 @@ impl App {
         app
     }
     fn begin(&mut self, phase: &str) {
+        #[cfg(any(test, feature = "dev-demo"))]
+        {
+            self.showcase_elapsed_seconds = None;
+        }
         self.busy = true;
         self.operation = Some((phase.into(), Instant::now()));
         self.status = phase.into();
@@ -392,7 +400,12 @@ impl App {
             return error.clone();
         }
         match &self.operation {
-            Some((phase, started)) => format!("{phase} · {}秒", started.elapsed().as_secs()),
+            Some((phase, started)) => {
+                let seconds = started.elapsed().as_secs();
+                #[cfg(any(test, feature = "dev-demo"))]
+                let seconds = self.showcase_elapsed_seconds.unwrap_or(seconds);
+                format!("{phase} · {seconds}秒")
+            }
             None => self.status.clone(),
         }
     }
