@@ -18,7 +18,7 @@ The scene uses the real conversation, Markdown, timestamp, inline image, compose
 
 The upper-right spinner uses the product’s existing **Reading messages** state, held as a simulated history refresh rather than an unfinished assistant generation. No showcase badge or demo-only status label is added to the UI. The answer is complete. Editing, scrolling, resizing, and opening the image work. Automatic polling is held so the initial composition remains stable. The prefilled input is an unsent draft; Enter sends only to the local fake backend and leaves the held refresh scene. Re-launch to reset the composition. Press **Ctrl+Q** to exit.
 
-The showcase starts in English without reading or writing the saved language preference. Message times are fixed RFC 3339 values and use the normal local-time display. The initial Reading messages elapsed time is fixed at **1s** for screenshots; the spinner remains animated. Starting a new operation resumes normal elapsed-time tracking. The regular client is unaffected. The text-led scene includes an evening checklist and Rust snippet; the image is a compact attachment preview. The complete moonlit scene fits 128×40 without scrolling. This fixture limits the image preview to 54 columns while preserving its full 3:1 aspect ratio; the source image is not stretched or cropped. Smaller windows use normal scrolling.
+The showcase starts in English without reading or writing the saved language preference. Message times are fixed RFC 3339 values and use the normal local-time display. The initial Reading messages elapsed time is fixed at **1s** for screenshots; the spinner remains animated. Starting a new operation resumes normal elapsed-time tracking. The regular client is unaffected. The text-led scene includes an evening checklist and Rust snippet; the image is a compact attachment preview. The complete moonlit scene fits 128×40 without scrolling. This fixture reserves the height of a 54-column preview while retaining the full message media width. The unchanged Grok Build image renderer fits the image proportionally and centers it horizontally; the Open Image button uses that same full-width center. The source image is not stretched or cropped. Smaller windows use normal scrolling.
 
 ## Customize the scene
 
@@ -29,3 +29,5 @@ Edit `src/showcase.rs`:
 - `assets/showcase/moonlit-night.png`: the embedded 2172×724 moonlit landscape, shown at its original aspect ratio.
 
 Re-run the script after editing. No API calls or real conversation data are needed. This showcase does not capture or publish a screenshot automatically.
+
+Alignment follows Grok Build public commit `2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8`: `xai-grok-pager/src/scrollback/render.rs` supplies the full content-width media area and `xai-grok-pager-render/src/terminal/image.rs` centers the fitted pixels. The only showcase-specific adaptation is the smaller reserved height; real conversations use their normal image dimensions.

@@ -183,6 +183,33 @@ mod tests {
             !app.history_frame.borrow().is_empty(),
             "actual inline media placement"
         );
+        let placements = app.history_frame.borrow();
+        let image = &placements[0];
+        assert!(image.area.width > 100, "media uses full conversation width");
+        let (cols, _) = crate::terminal::image::fit_image_to_cells(
+            2172,
+            724,
+            image.area.width,
+            image.full_rows,
+        );
+        assert!(cols <= 54, "showcase image stays compact: {cols}");
+        let x = image.area.x + (image.area.width - cols) / 2;
+        let escape = crate::terminal::image::place_inline_image(
+            &[],
+            2172,
+            724,
+            image.area,
+            image.full_rows,
+            0,
+            7,
+            false,
+        )
+        .unwrap();
+        assert!(escape.starts_with(&format!("\x1b[{};{}H", image.area.y + 1, x + 1)));
+        assert!(
+            x > image.area.x + 20,
+            "pixels are centered, not left-aligned"
+        );
     }
 
     #[test]

@@ -121,7 +121,17 @@ pub fn history_lines(
     }
     let _ = file; // Remote identifiers are never shown as user-facing filenames.
     if inline && let Some(info) = ready {
-        let rows = reserved_rows(info, width);
+        // Showcase-only sizing: reserve a short image area, not a narrow one.
+        // Grok's unchanged renderer fits and centers within the full media width.
+        #[cfg(any(test, feature = "dev-demo"))]
+        let sizing_width = if file == crate::showcase::IMAGE_ID {
+            width.min(54)
+        } else {
+            width
+        };
+        #[cfg(not(any(test, feature = "dev-demo")))]
+        let sizing_width = width;
+        let rows = reserved_rows(info, sizing_width);
         let button = lines.remove(3);
         lines.truncate(3);
         lines.extend((0..rows).map(|_| Line::from("")));

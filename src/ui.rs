@@ -244,14 +244,8 @@ fn transcript_layout_media(
         for file in m.files.iter().filter(|_| !m.is_human_message()) {
             let row = lines.len();
             let available = width.saturating_sub(4).min(u16::MAX as usize) as u16;
-            // Keep the selected 3:1 artwork complete in the 128x40 README scene.
-            // This fixture-only width cap never changes real conversation media.
-            #[cfg(any(test, feature = "dev-demo"))]
-            let available = if file == crate::showcase::IMAGE_ID {
-                available.min(54)
-            } else {
-                available
-            };
+            // Grok scrollback/render.rs uses the full message-content width.
+            // The shared terminal/image.rs renderer centers pixels in this area.
             let (media_lines, button_row, image_rows) =
                 crate::upstream_media::history_lines(file, media.get(file), available, inline);
             for mut line in media_lines {
@@ -1424,6 +1418,26 @@ mod media_hit_tests {
         let placements = app.history_frame.borrow();
         assert_eq!(placements.len(), 1);
         let placement = &placements[0];
+        assert_eq!(placement.area.width, t.content.width.saturating_sub(4));
+        let (cols, _) = crate::terminal::image::fit_image_to_cells(
+            96,
+            400,
+            placement.area.width,
+            placement.full_rows,
+        );
+        let x = placement.area.x + (placement.area.width - cols) / 2;
+        let esc = crate::terminal::image::place_inline_image(
+            &[],
+            96,
+            400,
+            placement.area,
+            placement.full_rows,
+            placement.top_crop,
+            7,
+            false,
+        )
+        .unwrap();
+        assert!(esc.starts_with(&format!("\x1b[{};{}H", placement.area.y + 1, x + 1)));
         assert_eq!(placement.top_crop, 3);
         assert_eq!(placement.area.y, t.content.y);
         assert!(placement.area.bottom() <= t.content.bottom());
