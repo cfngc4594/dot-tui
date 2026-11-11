@@ -1,6 +1,6 @@
 # dot-tui
 
-Chat with your ChatGPT dot from the terminal, with Markdown replies and image attachments.
+A terminal client for ChatGPT dot.
 
 ![dot-tui terminal interface](docs/assets/showcase.png)
 
