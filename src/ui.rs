@@ -244,6 +244,14 @@ fn transcript_layout_media(
         for file in m.files.iter().filter(|_| !m.is_human_message()) {
             let row = lines.len();
             let available = width.saturating_sub(4).min(u16::MAX as usize) as u16;
+            // Keep the selected 3:1 artwork complete in the 128x40 README scene.
+            // This fixture-only width cap never changes real conversation media.
+            #[cfg(any(test, feature = "dev-demo"))]
+            let available = if file == crate::showcase::IMAGE_ID {
+                available.min(108)
+            } else {
+                available
+            };
             let (media_lines, button_row, image_rows) =
                 crate::upstream_media::history_lines(file, media.get(file), available, inline);
             for mut line in media_lines {

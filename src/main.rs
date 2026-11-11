@@ -1505,7 +1505,7 @@ fn demo_image_view(dot: &Dot, file: &str) -> Result<prompt_images::PastedImage, 
                 return Err("invalid fake metadata endpoint".into());
             }
             let name = if self.file == showcase::IMAGE_ID {
-                "quiet-horizon.png"
+                "moonlit-night.png"
             } else {
                 "offline-received.png"
             };
