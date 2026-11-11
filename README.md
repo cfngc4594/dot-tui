@@ -1,6 +1,6 @@
 # dot-tui
 
-A terminal client for ChatGPT dot.
+A terminal UI (TUI) for ChatGPT dot, using your existing Codex login.
 
 ![dot-tui terminal interface](docs/assets/showcase.png)
 
