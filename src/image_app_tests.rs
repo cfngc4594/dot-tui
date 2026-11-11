@@ -77,9 +77,6 @@ fn image_guards_block_until_visible_and_explicit_bare_enter() {
     a.image_loading = 1;
     key(&mut a, enter(), &tx);
     a.image_loading = 0;
-    a.enable_send = false;
-    key(&mut a, enter(), &tx);
-    a.enable_send = true;
     a.bound_target = None;
     key(&mut a, enter(), &tx);
     a.bound_target = Some(("demo".into(), "demo-room".into()));
@@ -195,30 +192,8 @@ fn selector_enter_is_consumed_as_local_selection_and_same_batch_enter_cannot_sen
     std::fs::remove_file(path).unwrap();
 }
 #[test]
-fn image_paste_in_readonly_never_schedules_file_or_clipboard_read() {
-    let mut a = App::demo();
-    a.enable_send = false;
-    let (tx, rx) = channels();
-    let area = Rect::new(0, 0, 100, 30);
-    dispatch_input(
-        &mut a,
-        Event::Paste("/tmp/not-read.png".into()),
-        area,
-        area,
-        &tx,
-    );
-    key(
-        &mut a,
-        event::KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL),
-        &tx,
-    );
-    assert!(rx.try_recv().is_err());
-}
-
-#[test]
 fn received_attachment_click_runs_metadata_download_original_preview_without_send() {
     let mut a = App::demo();
-    a.enable_send = false;
     a.messages[0].files = vec!["fake-file-1".into()];
     a.history_changed();
     let area = Rect::new(0, 0, 100, 30);

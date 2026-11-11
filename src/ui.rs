@@ -894,7 +894,7 @@ pub(super) fn draw(f: &mut Frame, app: &App) {
         );
     }
     let composer = geometry.prompt;
-    let input_available = app.enable_send && !app.quit_review;
+    let input_available = !app.quit_review;
     let enabled = input_available && app.prompt_focused && app.window_focused;
     f.buffer_mut().set_style(
         composer,

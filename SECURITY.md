@@ -9,7 +9,7 @@ message dumps or raw transport logs to maintainers.
 Launching the interactive application starts a real connection with the existing
 official Codex login. The repeated startup prompt has been removed at the user’s
 request; this document retains the disclosure. No persistent consent grant, new
-credential or expanded account access is created. --read-only disables composing.
+credential or expanded account access is created.
 Real sends require an
 one bound dot with an existing room and an explicit non-repeat Enter press. No background component can
 turn a draft into a send. Sending can cause your dot to execute the supplied task.

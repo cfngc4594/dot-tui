@@ -11,9 +11,9 @@ This change follows the user's final choice to reuse Grok Build / reqwest proxy
 - `cargo fmt --check` and `git diff --check`.
 - `cargo build --locked --offline`: default-feature debug candidate built in a
   separate target directory, not installed over the normal executable.
-- Candidate `--help`: `--no-proxy` and `--read-only` present; development-only
+- Candidate `--help`: `--no-proxy` present; development-only
   `--demo` and `--showcase` absent.
-- Live, read-only candidate through a local HTTP CONNECT proxy selected by
+- Live candidate through a local HTTP CONNECT proxy selected by
   `HTTPS_PROXY`: dot-list GET returned HTTP 200 (5899 ms); message-list GET
   returned HTTP 200 (968 ms). No message was sent, no image was uploaded, and
   no account token, account identifier, or conversation content was printed or
@@ -46,6 +46,5 @@ This change follows the user's final choice to reuse Grok Build / reqwest proxy
 
 Launch the separately built candidate with `HTTPS_PROXY` set to the endpoint of
 an existing trusted HTTP/HTTPS proxy. Do not assume an unchanged installed
-`dot-tui` command runs this candidate. Use `--read-only` for a read-only trial;
-use `--no-proxy` only for deliberate direct access. No system network setting or
+`dot-tui` command runs this candidate. Use `--no-proxy` only for deliberate direct access. No system network setting or
 shell startup configuration was changed.

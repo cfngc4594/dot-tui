@@ -389,7 +389,7 @@ textarea consume scrolling, and fall back to history when it cannot scroll.
 Dot tests `Scrolled` directly instead of recreating `handle_mouse_scroll`.
 The original vendored TextArea owns scrolling, clamping, cursor-independent
 viewport overrides, and resuming cursor-follow on editing. No new scrolling
-algorithm is introduced. Dot's event-loop and modal/read-only gates remain.
+algorithm is introduced. Dot's event-loop and modal gates remain.
 
 Code-fence rendering continues to use the unchanged original Markdown crates
 and syntax assets recorded by `vendor/UPSTREAM_MANIFEST.json`. Regression

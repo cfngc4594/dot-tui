@@ -173,7 +173,6 @@ Final validation on the connected Mac (Rust 1.96.0-nightly):
 Trial commands, from this repository:
 
 - `./target-showcase/debug/dot-tui`: real account using the existing login.
-- `./target-showcase/debug/dot-tui --read-only`: real history, composing disabled.
 - `./target-showcase/debug/dot-tui --demo`: offline fixture; copies use its internal
   clipboard, so press Space to focus the composer and Ctrl+V to verify offline.
 

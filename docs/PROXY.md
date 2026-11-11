@@ -33,7 +33,7 @@ For deliberate direct access, ignoring all proxy environment variables:
 dot-tui --no-proxy
 ```
 
-Use `--read-only` to disable composing. Restart the app after changing its proxy
+Restart the app after changing its proxy
 environment. The client snapshots configuration when it is constructed.
 
 ## Supported scope and limits

@@ -102,9 +102,6 @@ use std::{
     about = "Native single-conversation dot client. Enter sends to your connected dot; Shift+Enter inserts a newline when reported by the terminal."
 )]
 struct Args {
-    /// Read messages without enabling the composer.
-    #[arg(long)]
-    read_only: bool,
     /// Connect directly, ignoring proxy environment variables.
     #[arg(long)]
     no_proxy: bool,
@@ -205,7 +202,6 @@ struct App {
     reading_anchor: Option<ReadingAnchor>,
     fold_anchor: Option<ui::FoldAnchor>,
     timeline_area: std::cell::Cell<Rect>,
-    enable_send: bool,
     draft: image_composer::ImageComposer,
     image_loading: usize,
     image_stage_tx: Option<mpsc::SyncSender<Job>>,
@@ -295,7 +291,6 @@ impl App {
             reading_anchor: None,
             fold_anchor: None,
             timeline_area: std::cell::Cell::new(Rect::default()),
-            enable_send: true,
             draft,
             image_loading: 0,
             image_stage_tx: None,
@@ -588,7 +583,6 @@ impl App {
     fn can_edit(&self) -> bool {
         self.window_focused
             && self.prompt_focused
-            && self.enable_send
             && !self.quit_review
             && self.received_image.is_none()
             && !self.image_view_loading
@@ -735,11 +729,10 @@ impl App {
         }
     }
     // Grok's Scrollback -> FocusPrompt -> forward paste, without bypassing a
-    // modal, read-only mode, uncertain send, or application/window focus gate.
+    // modal, uncertain send, or application/window focus gate.
     fn focus_for_paste(&mut self) -> bool {
         if self.window_focused
             && self.ui_visible
-            && self.enable_send
             && !self.quit_review
             && self.received_image.is_none()
             && !self.image_view_loading
@@ -798,7 +791,6 @@ impl App {
         }
         if !self.window_focused
             || !self.ui_visible
-            || !self.enable_send
             || self.worker_failed
             || self.image_loading > 0
             || self.image_view_loading
@@ -2730,13 +2722,11 @@ fn run(args: Args) -> Result<(), String> {
     if let Some(error) = language_error {
         app.status = error;
     }
-    app.enable_send = !args.read_only;
     let mut source = if demo {
         #[cfg(feature = "dev-demo")]
         {
             app = App::demo();
             app.language_path = language_path.clone();
-            app.enable_send = !args.read_only;
             if args.demo_clipboard_image {
                 app.image_clipboard_fixture = Some(image_ingress::synthetic());
             }
@@ -3160,14 +3150,14 @@ mod tests {
     #[test]
     fn default_is_real_single_conversation_with_enter_send() {
         let args = Args::try_parse_from(["dot-tui"]).unwrap();
-        assert!(!args.is_demo() && !args.read_only && !args.no_proxy);
+        assert!(!args.is_demo() && !args.no_proxy);
         let a = App::new();
         assert!(a.live && a.dots.is_empty() && a.messages.is_empty() && a.pending.is_none());
     }
     #[test]
-    fn explicit_no_proxy_is_available_with_read_only() {
-        let args = Args::try_parse_from(["dot-tui", "--no-proxy", "--read-only"]).unwrap();
-        assert!(args.no_proxy && args.read_only);
+    fn explicit_no_proxy_is_available() {
+        let args = Args::try_parse_from(["dot-tui", "--no-proxy"]).unwrap();
+        assert!(args.no_proxy);
         assert!(Args::try_parse_from(["dot-tui", "--proxy", "http://localhost:7897"]).is_err());
     }
     #[test]
@@ -3306,16 +3296,6 @@ mod tests {
         a.append(&"a".repeat(17000));
         assert!(a.draft().ends_with(&"a".repeat(17000)));
     }
-    #[test]
-    fn read_only_cannot_compose_or_send() {
-        let (mut a, (tx, rx)) = (App::demo(), mpsc::channel());
-        a.enable_send = false;
-        a.append("not allowed");
-        a.submit(&tx);
-        assert!(a.draft().is_empty());
-        assert!(rx.try_recv().is_err());
-    }
-
     #[test]
     fn stale_send_cannot_clear_current_draft() {
         let (mut a, (tx, _rx)) = (App::demo(), mpsc::channel());

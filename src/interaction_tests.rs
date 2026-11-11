@@ -43,7 +43,7 @@ fn editing_is_grapheme_aware_and_never_modifies_history_or_sends() {
     assert_eq!(app.draft(), "头\nA中新Z尾");
     assert_eq!(app.messages, history);
     assert!(rx.try_recv().is_err());
-    app.enable_send = false;
+    app.quit_review = true;
     let draft = app.draft().to_owned();
     app.edit(KeyCode::Delete);
     app.append("ignored");

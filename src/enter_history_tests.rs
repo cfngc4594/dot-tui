@@ -284,9 +284,9 @@ fn paste_and_same_batch_backlog_enter_never_submit() {
     assert!(rx.try_recv().is_err());
 }
 #[test]
-fn send_guards_reject_missing_ambiguous_unbound_empty_readonly_hidden() {
+fn send_guards_reject_missing_ambiguous_unbound_empty_hidden() {
     let (tx, rx) = mpsc::channel();
-    for scenario in [0, 1, 2, 3, 4, 5, 6, 9, 10] {
+    for scenario in [0, 1, 2, 3, 4, 5, 9, 10] {
         let mut a = App::demo();
         a.append("guard");
         match scenario {
@@ -296,7 +296,6 @@ fn send_guards_reject_missing_ambiguous_unbound_empty_readonly_hidden() {
             3 => a.bound_target = None,
             4 => a.dots[0].room = Some("other".into()),
             5 => a.draft.set_text(" \n"),
-            6 => a.enable_send = false,
             7 => a.busy = true,
             8 => a.uncertain = true,
             9 => a.ui_visible = false,

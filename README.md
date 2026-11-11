@@ -3,7 +3,7 @@
 **dot-tui** is an open-source terminal user interface (TUI) for chatting with your ChatGPT dot. It is built with Rust and [Ratatui](https://ratatui.rs/).
 
 - Read conversation history, send messages, and attach images from your terminal.
-- Render replies as Markdown and use `--read-only` to browse without composing.
+- Render replies as Markdown.
 
 ![dot-tui terminal interface](docs/assets/showcase.png)
 
@@ -31,12 +31,6 @@ Sign in to Codex with your ChatGPT account and make sure your dot already has a 
 
 ```sh
 dot-tui
-```
-
-For a read-only session:
-
-```sh
-dot-tui --read-only
 ```
 
 For a trusted local proxy, run `HTTPS_PROXY=http://127.0.0.1:7897 dot-tui` (replace the example port); use `--no-proxy` for direct access. See [proxy details](docs/PROXY.md).
