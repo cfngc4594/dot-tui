@@ -248,7 +248,7 @@ fn transcript_layout_media(
             // This fixture-only width cap never changes real conversation media.
             #[cfg(any(test, feature = "dev-demo"))]
             let available = if file == crate::showcase::IMAGE_ID {
-                available.min(108)
+                available.min(54)
             } else {
                 available
             };
