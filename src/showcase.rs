@@ -96,20 +96,22 @@ mod tests {
         let mut app = App::demo();
         let mut fake = FakeBackend::new();
         configure(&mut app, &mut fake);
+        // Advance the observation time instead of subtracting from Instant::now(),
+        // which can underflow on Windows when the machine has just started.
+        let started = app.operation.as_ref().unwrap().1;
         for elapsed in [0, 2, 60, 3600] {
-            app.operation.as_mut().unwrap().1 =
-                std::time::Instant::now() - std::time::Duration::from_secs(elapsed);
-            assert_eq!(app.status_line(), "读取消息 · 1秒");
+            let now = started + std::time::Duration::from_secs(elapsed);
+            assert_eq!(app.status_line_at(now), "读取消息 · 1秒");
         }
         app.begin("发送消息");
-        app.operation.as_mut().unwrap().1 =
-            std::time::Instant::now() - std::time::Duration::from_secs(5);
-        assert_eq!(app.status_line(), "发送消息 · 5秒");
+        let started = app.operation.as_ref().unwrap().1;
+        let now = started + std::time::Duration::from_secs(5);
+        assert_eq!(app.status_line_at(now), "发送消息 · 5秒");
         let mut normal = App::demo();
         normal.begin("读取消息");
-        normal.operation.as_mut().unwrap().1 =
-            std::time::Instant::now() - std::time::Duration::from_secs(8);
-        assert_eq!(normal.status_line(), "读取消息 · 8秒");
+        let started = normal.operation.as_ref().unwrap().1;
+        let now = started + std::time::Duration::from_secs(8);
+        assert_eq!(normal.status_line_at(now), "读取消息 · 8秒");
     }
 
     #[test]

@@ -383,6 +383,9 @@ impl App {
         self.status = phase.into();
     }
     fn status_line(&self) -> String {
+        self.status_line_at(Instant::now())
+    }
+    fn status_line_at(&self, now: Instant) -> String {
         if self.uncertain {
             return format!(
                 "{} · Check the official app before resending. Up from an empty input recalls the previous submission.",
@@ -396,7 +399,7 @@ impl App {
         }
         match &self.operation {
             Some((phase, started)) => {
-                let seconds = started.elapsed().as_secs();
+                let seconds = now.duration_since(*started).as_secs();
                 #[cfg(any(test, feature = "dev-demo"))]
                 let seconds = self.showcase_elapsed_seconds.unwrap_or(seconds);
                 format!("{phase} · {seconds}秒")
