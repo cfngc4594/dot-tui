@@ -112,14 +112,20 @@ fn click_drag_release_resize_and_wheel_share_live_scroll_state() {
         &tx,
     );
     let offset = app.scroll;
+    let resized_area = Rect::new(0, 0, 80, 25);
     mouse(
         &mut app,
         pointer(MouseEventKind::Drag(MouseButton::Left), track.x, track.y),
-        Rect::new(0, 0, 80, 25),
+        resized_area,
         &tx,
     );
     assert_eq!(app.scroll, offset);
     assert!(app.scrollbar_drag.is_none());
+    // Finish the resized layout before returning to the original viewport,
+    // exercising the case where it replaces the old snapshot.
+    ui::settle(&app, resized_area);
+    // Wait for the matching-width snapshot required by apply_scroll.
+    ui::settle(&app, area);
     apply_scroll(&mut app, -100000, area);
     assert_eq!(app.scroll, 0);
     apply_scroll(&mut app, 100000, area);
